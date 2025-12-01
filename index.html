@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay Core API — High-Concurrency Webhook Dispatcher & Sandbox</title>
+  <meta name="description" content="An ultra-clean developer sandbox and distributed webhook engine featuring idempotency verification, exponential backoff simulation, and live HMAC cryptographic signing.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Developer Masthead -->
+  <header class="dev-masthead">
+    <div class="masthead-left">
+      <div class="api-badge">
+        <span class="badge-dot"></span>
+        <span class="badge-text">v2.4.0-edge</span>
+      </div>
+      <span class="api-brand">RELAY CORE &bull; DISTRIBUTED DISPATCH ENGINE</span>
+    </div>
+    <div class="masthead-right">
+      <div class="metric-cluster">
+        <span>WORKERS: <strong id="workerCount">16 ACTIVE</strong></span>
+        <span class="metric-sep">/</span>
+        <span>THROUGHPUT: <strong>4,200 REQ/SEC</strong></span>
+        <span class="metric-sep">/</span>
+        <span>LATENCY: <strong>1.4ms (p99)</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Developer Console Layout -->
+  <main class="console-grid">
+    
+    <!-- Left: Event Payload Builder & Signature Simulator -->
+    <section class="panel-column builder-panel">
+      
+      <div class="panel-header">
+        <span class="panel-kicker">DISPATCH CONFIGURATION</span>
+        <h3>Outbound Webhook Event</h3>
+      </div>
+
+      <div class="config-form">
+        <div class="form-group">
+          <label for="eventSelect">EVENT TOPIC</label>
+          <select id="eventSelect" onchange="onTopicChange()">
+            <option value="payment.settled">invoice.payment_settled (CEPALCO Intertie)</option>
+            <option value="meter.threshold_breach">grid.meter_threshold_breach (Substation)</option>
+            <option value="auth.session_revoked">identity.auth_session_revoked (OAuth2)</option>
+            <option value="drone.telemetry_anomaly">iot.drone_telemetry_anomaly (Upland)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="idempotencyKey">IDEMPOTENCY KEY</label>
+            <input type="text" id="idempotencyKey" value="idem_cdo_948f2c01" />
+          </div>
+          <button class="mini-btn" onclick="generateNewKey()">Generate</button>
+        </div>
+
+        <div class="form-group">
+          <label for="targetUrl">TARGET ENDPOINT URL</label>
+          <input type="text" id="targetUrl" value="https://api.subscriber.ph/v1/webhooks/listener" />
+        </div>
+
+        <div class="form-group">
+          <div class="label-row">
+            <label for="payloadEditor">PAYLOAD JSON (RFC 7946)</label>
+            <span class="schema-hint">VALIDATED SCHEMA</span>
+          </div>
+          <textarea id="payloadEditor" spellcheck="false"></textarea>
+        </div>
+
+        <!-- HMAC Cryptographic Signature Block -->
+        <div class="hmac-box">
+          <div class="hmac-header">
+            <span class="hmac-title">X-Relay-Signature (HMAC-SHA256)</span>
+            <span class="sec-status" id="hmacStatus">SIGNATURE VERIFIED</span>
+          </div>
+          <div class="hmac-signature-val" id="hmacSigOutput">
+            t=1734509122,v1=9f82d1c084f7e2a9b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0
+          </div>
+        </div>
+
+        <button class="dispatch-btn" onclick="dispatchWebhook()">
+          <span class="btn-arrow">&rarr;</span> Dispatch Outbound Webhook
+        </button>
+      </div>
+
+    </section>
+
+    <!-- Right: Delivery Pipeline, Retry Exponential Backoff, and Wire Inspector -->
+    <section class="panel-column delivery-panel">
+      
+      <div class="panel-header">
+        <div class="tabs-row">
+          <button class="view-tab active" onclick="switchView('wire', this)">Wire Transmission</button>
+          <button class="view-tab" onclick="switchView('backoff', this)">Exponential Backoff Model</button>
+          <button class="view-tab" onclick="switchView('idempotency', this)">Idempotency Cache</button>
+        </div>
+      </div>
+
+      <!-- Tab View 1: Wire Transmission Inspector -->
+      <div class="view-tab-content active" id="view-wire">
+        <div class="http-wire-box">
+          <div class="wire-header">
+            <span class="wire-status status-200" id="httpStatus">POST 200 OK &bull; 1.4ms</span>
+            <span class="wire-timestamp" id="wireTimestamp">2025-12-14 10:24:18.042 UTC</span>
+          </div>
+          
+          <div class="wire-section-title">REQUEST HEADERS</div>
+          <pre class="code-block" id="reqHeadersBlock">POST /v1/webhooks/listener HTTP/1.1
+Host: api.subscriber.ph
+Content-Type: application/json
+User-Agent: RelayCore/2.4 (Distributed Webhook Engine)
+X-Relay-Event: invoice.payment_settled
+X-Relay-Delivery: deliv_8f2940bc1284
+X-Relay-Signature: t=1734509122,v1=9f82d1c084f7e2a9b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0
+Idempotency-Key: idem_cdo_948f2c01</pre>
+
+          <div class="wire-section-title">RECEIVER ACKNOWLEDGEMENT</div>
+          <pre class="code-block text-success" id="ackBlock">{
+  "acknowledged": true,
+  "received_at": "2025-12-14T10:24:18.044Z",
+  "idempotency_cached": false,
+  "delivery_id": "deliv_8f2940bc1284",
+  "status": "processed"
+}</pre>
+        </div>
+      </div>
+
+      <!-- Tab View 2: Exponential Backoff Timeline -->
+      <div class="view-tab-content" id="view-backoff">
+        <div class="backoff-container">
+          <div class="backoff-header">
+            <h4>Exponential Retry Jitter Schedule (N=5 Max Attempts)</h4>
+            <p>Calculated via truncated binary exponential backoff with decorrelated full jitter:</p>
+          </div>
+
+          <div class="timeline-steps">
+            <div class="step-card step-success">
+              <div class="step-num">ATTEMPT 1</div>
+              <div class="step-meta">
+                <strong>Immediate Dispatch</strong>
+                <span>t = 0s &bull; Response: 504 Gateway Timeout</span>
+              </div>
+            </div>
+            <div class="step-card step-retry">
+              <div class="step-num">ATTEMPT 2</div>
+              <div class="step-meta">
+                <strong>Retry 1 &bull; Backoff: 2.1s (+300ms Jitter)</strong>
+                <span>t = 2.4s &bull; Response: 502 Bad Gateway</span>
+              </div>
+            </div>
+            <div class="step-card step-retry">
+              <div class="step-num">ATTEMPT 3</div>
+              <div class="step-meta">
+                <strong>Retry 2 &bull; Backoff: 8.4s (+800ms Jitter)</strong>
+                <span>t = 11.6s &bull; Response: 503 Service Unavailable</span>
+              </div>
+            </div>
+            <div class="step-card step-final">
+              <div class="step-num">ATTEMPT 4</div>
+              <div class="step-meta">
+                <strong>Retry 3 &bull; Backoff: 32.0s (+1.2s Jitter)</strong>
+                <span>t = 44.8s &bull; Response: 200 OK (Recovered)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab View 3: Idempotency Key Vault -->
+      <div class="view-tab-content" id="view-idempotency">
+        <div class="vault-container">
+          <div class="vault-header">
+            <h4>Distributed Redis Idempotency Ledger</h4>
+            <p>Guarantees exactly-once processing semantics across network retries and duplicate transmissions:</p>
+          </div>
+
+          <table class="vault-table">
+            <thead>
+              <tr>
+                <th>IDEMPOTENCY KEY</th>
+                <th>TOPIC</th>
+                <th>FIRST SEEN</th>
+                <th>STATE</th>
+              </tr>
+            </thead>
+            <tbody id="vaultTableBody">
+              <tr>
+                <td><code>idem_cdo_948f2c01</code></td>
+                <td>invoice.payment_settled</td>
+                <td>Just now</td>
+                <td><span class="status-pill pill-fresh">FRESH LOCK</span></td>
+              </tr>
+              <tr>
+                <td><code>idem_grid_1848da3</code></td>
+                <td>grid.meter_threshold_breach</td>
+                <td>2m ago</td>
+                <td><span class="status-pill pill-replay">REPLAY GUARD (CACHED)</span></td>
+              </tr>
+              <tr>
+                <td><code>idem_auth_7832ef1</code></td>
+                <td>identity.auth_session_revoked</td>
+                <td>14m ago</td>
+                <td><span class="status-pill pill-replay">EXPIRED (TTL 24H)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bottom Terminal Event Stream -->
+      <div class="live-tail">
+        <div class="tail-header">
+          <span>EVENT BUS TAIL &bull; REDIS STREAMS</span>
+          <span class="tail-pulse"></span>
+        </div>
+        <div class="tail-logs" id="tailLogs">
+          <div class="log-line"><code>[10:24:18.040]</code> &bull; INGEST: Received trigger for topic <code>invoice.payment_settled</code></div>
+          <div class="log-line"><code>[10:24:18.041]</code> &bull; CRYPTO: Computed SHA-256 HMAC digest in 0.18ms</div>
+          <div class="log-line text-success"><code>[10:24:18.044]</code> &bull; DISPATCH: HTTP 200 delivered to endpoint in 1.4ms</div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
