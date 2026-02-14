@@ -18,7 +18,7 @@ In distributed systems and microservice architectures, webhook deliveries are vu
 
 ## 🛠️ Sandbox Capabilities
 
-- **Interactive Event Builder**: Select from production event topics (CEPALCO utility settlements, grid meter threshold alarms, OAuth identity revocation).
+- **Interactive Event Builder**: Select from production event topics (regional utility billing settlements, grid meter threshold alarms, OAuth identity revocation).
 - **HTTP Wire Inspector**: Live visualization of outgoing HTTP headers (`POST`, `Content-Type`, `X-Relay-Delivery`, `X-Relay-Signature`) alongside subscriber JSON acknowledgements.
 - **Exponential Backoff Simulator**: Explores retry delays across attempts 1 through 5 with randomized jitter offsets.
 - **Redis Idempotency Ledger**: Real-time inspection of active distributed keys, time-to-live expirations, and replay guards.
@@ -45,3 +45,4 @@ cd relay-core-api
 # Open index.html in any browser
 open index.html
 ```
+

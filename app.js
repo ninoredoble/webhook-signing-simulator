@@ -5,7 +5,7 @@ const TOPIC_PAYLOADS = {
     "event": "invoice.payment_settled",
     "timestamp": 1734509122,
     "data": {
-      "invoice_id": "inv_cdo_cepalco_84920",
+      "invoice_id": "inv_cdo_utility_84920",
       "account_number": "08-4192-019",
       "billing_district": "Carmen Urban Feeder",
       "amount_php": 4850.50,
@@ -144,3 +144,4 @@ Idempotency-Key: ${key}`;
   `;
   tbody.innerHTML = newRow + tbody.innerHTML;
 }
+
