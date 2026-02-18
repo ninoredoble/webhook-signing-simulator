@@ -3,236 +3,185 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Relay Core API — High-Concurrency Webhook Dispatcher & Sandbox</title>
-  <meta name="description" content="An ultra-clean developer sandbox and distributed webhook engine featuring idempotency verification, exponential backoff simulation, and live HMAC cryptographic signing.">
+  <title>relayctl — Distributed Webhook Dispatch & TUI Terminal Console</title>
+  <meta name="description" content="An authentic interactive terminal emulator and TUI console for inspecting distributed webhook delivery, idempotency key caches, and exponential retry backoff.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-  <!-- Top Developer Masthead -->
-  <header class="dev-masthead">
-    <div class="masthead-left">
-      <div class="api-badge">
-        <span class="badge-dot"></span>
-        <span class="badge-text">v2.4.0-edge</span>
-      </div>
-      <span class="api-brand">RELAY CORE &bull; DISTRIBUTED DISPATCH ENGINE</span>
-    </div>
-    <div class="masthead-right">
-      <div class="metric-cluster">
-        <span>WORKERS: <strong id="workerCount">16 ACTIVE</strong></span>
-        <span class="metric-sep">/</span>
-        <span>THROUGHPUT: <strong>4,200 REQ/SEC</strong></span>
-        <span class="metric-sep">/</span>
-        <span>LATENCY: <strong>1.4ms (p99)</strong></span>
-      </div>
-    </div>
-  </header>
-
-  <!-- Developer Console Layout -->
-  <main class="console-grid">
+  <div class="tui-window">
     
-    <!-- Left: Event Payload Builder & Signature Simulator -->
-    <section class="panel-column builder-panel">
+    <!-- Window Title Bar -->
+    <header class="tui-title-bar">
+      <div class="title-left">
+        <div class="window-dots">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+        </div>
+        <span class="term-title">relayctl &bull; v2.4.0 (x86_64-unknown-linux-musl)</span>
+      </div>
+      <div class="title-stats">
+        <span class="stat-item">CLUSTER: <strong>ap-southeast-1 (PH)</strong></span>
+        <span class="stat-item">WORKERS: <strong>16/16 ONLINE</strong></span>
+        <span class="stat-item">IDLE: <strong>99.8%</strong></span>
+      </div>
+    </header>
+
+    <!-- Top TUI Telemetry & Sparkline HUD -->
+    <div class="tui-hud">
+      <div class="hud-spark">
+        <span style="color: var(--term-dim);">THROUGHPUT:</span>
+        <span class="spark-bars" id="sparkline">[ ▃▅▇█▇▅▃ ▃▅▇█ ]</span>
+        <span class="hud-rate"><strong id="reqSec">4,280</strong> req/s</span>
+      </div>
+      <div>
+        <span style="color: var(--term-dim);">REPLAY GUARD:</span>
+        <span style="color: var(--term-green); font-weight: 700;">100% ATOMIC</span>
+      </div>
+      <div>
+        <span style="color: var(--term-dim);">P99 WIRE LATENCY:</span>
+        <span style="color: var(--term-cyan); font-weight: 700;">1.42 ms</span>
+      </div>
+    </div>
+
+    <!-- TUI Split Workspace -->
+    <main class="tui-workspace">
       
-      <div class="panel-header">
-        <span class="panel-kicker">DISPATCH CONFIGURATION</span>
-        <h3>Outbound Webhook Event</h3>
-      </div>
-
-      <div class="config-form">
-        <div class="form-group">
-          <label for="eventSelect">EVENT TOPIC</label>
-          <select id="eventSelect" onchange="onTopicChange()">
-            <option value="payment.settled">invoice.payment_settled (Regional Utility Intertie)</option>
-            <option value="meter.threshold_breach">grid.meter_threshold_breach (Substation)</option>
-            <option value="auth.session_revoked">identity.auth_session_revoked (OAuth2)</option>
-            <option value="drone.telemetry_anomaly">iot.drone_telemetry_anomaly (Upland)</option>
-          </select>
+      <!-- Left Pane: Interactive REPL Terminal -->
+      <section class="tui-console-pane">
+        <div class="pane-header-strip">
+          <span class="pane-title">TERMINAL SESSION &bull; PTS/1</span>
+          <span>BASH 5.2.15</span>
         </div>
 
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label for="idempotencyKey">IDEMPOTENCY KEY</label>
-            <input type="text" id="idempotencyKey" value="idem_cdo_948f2c01" />
-          </div>
-          <button class="mini-btn" onclick="generateNewKey()">Generate</button>
-        </div>
-
-        <div class="form-group">
-          <label for="targetUrl">TARGET ENDPOINT URL</label>
-          <input type="text" id="targetUrl" value="https://api.subscriber.ph/v1/webhooks/listener" />
-        </div>
-
-        <div class="form-group">
-          <div class="label-row">
-            <label for="payloadEditor">PAYLOAD JSON (RFC 7946)</label>
-            <span class="schema-hint">VALIDATED SCHEMA</span>
-          </div>
-          <textarea id="payloadEditor" spellcheck="false"></textarea>
-        </div>
-
-        <!-- HMAC Cryptographic Signature Block -->
-        <div class="hmac-box">
-          <div class="hmac-header">
-            <span class="hmac-title">X-Relay-Signature (HMAC-SHA256)</span>
-            <span class="sec-status" id="hmacStatus">SIGNATURE VERIFIED</span>
-          </div>
-          <div class="hmac-signature-val" id="hmacSigOutput">
-            t=1734509122,v1=9f82d1c084f7e2a9b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0
-          </div>
-        </div>
-
-        <button class="dispatch-btn" onclick="dispatchWebhook()">
-          <span class="btn-arrow">&rarr;</span> Dispatch Outbound Webhook
-        </button>
-      </div>
-
-    </section>
-
-    <!-- Right: Delivery Pipeline, Retry Exponential Backoff, and Wire Inspector -->
-    <section class="panel-column delivery-panel">
-      
-      <div class="panel-header">
-        <div class="tabs-row">
-          <button class="view-tab active" onclick="switchView('wire', this)">Wire Transmission</button>
-          <button class="view-tab" onclick="switchView('backoff', this)">Exponential Backoff Model</button>
-          <button class="view-tab" onclick="switchView('idempotency', this)">Idempotency Cache</button>
-        </div>
-      </div>
-
-      <!-- Tab View 1: Wire Transmission Inspector -->
-      <div class="view-tab-content active" id="view-wire">
-        <div class="http-wire-box">
-          <div class="wire-header">
-            <span class="wire-status status-200" id="httpStatus">POST 200 OK &bull; 1.4ms</span>
-            <span class="wire-timestamp" id="wireTimestamp">2025-12-14 10:24:18.042 UTC</span>
-          </div>
+        <!-- Terminal Stage / Scrollback -->
+        <div class="console-scroll-stage" id="termStage">
           
-          <div class="wire-section-title">REQUEST HEADERS</div>
-          <pre class="code-block" id="reqHeadersBlock">POST /v1/webhooks/listener HTTP/1.1
-Host: api.subscriber.ph
-Content-Type: application/json
-User-Agent: RelayCore/2.4 (Distributed Webhook Engine)
-X-Relay-Event: invoice.payment_settled
-X-Relay-Delivery: deliv_8f2940bc1284
-X-Relay-Signature: t=1734509122,v1=9f82d1c084f7e2a9b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0
-Idempotency-Key: idem_cdo_948f2c01</pre>
+          <pre class="term-banner">
+┌──────────────────────────────────────────────────────────────┐
+│  RELAY CORE CLI &bull; DISTRIBUTED EVENT ENGINE (v2.4.0)          │
+│  Type '<span class="highlight">help</span>' for available commands or use quick actions below.│
+└──────────────────────────────────────────────────────────────┘</pre>
 
-          <div class="wire-section-title">RECEIVER ACKNOWLEDGEMENT</div>
-          <pre class="code-block text-success" id="ackBlock">{
-  "acknowledged": true,
-  "received_at": "2025-12-14T10:24:18.044Z",
-  "idempotency_cached": false,
-  "delivery_id": "deliv_8f2940bc1284",
-  "status": "processed"
-}</pre>
+          <div class="term-output-block">
+            <div class="cmd-echo">
+              <span class="prompt-user">relay@worker-01</span><span class="prompt-sep">:</span><span class="prompt-path">~</span>$ <span class="cmd-txt">relayctl status --all</span>
+            </div>
+            <div class="resp-line resp-success">&bull; Cluster healthy: 16 daemon workers active across regional queue.</div>
+            <div class="resp-line resp-dim">&bull; Redis Idempotency Ledger: 142 keys cached (TTL: 86400s).</div>
+          </div>
+
         </div>
-      </div>
 
-      <!-- Tab View 2: Exponential Backoff Timeline -->
-      <div class="view-tab-content" id="view-backoff">
-        <div class="backoff-container">
-          <div class="backoff-header">
-            <h4>Exponential Retry Jitter Schedule (N=5 Max Attempts)</h4>
-            <p>Calculated via truncated binary exponential backoff with decorrelated full jitter:</p>
-          </div>
-
-          <div class="timeline-steps">
-            <div class="step-card step-success">
-              <div class="step-num">ATTEMPT 1</div>
-              <div class="step-meta">
-                <strong>Immediate Dispatch</strong>
-                <span>t = 0s &bull; Response: 504 Gateway Timeout</span>
-              </div>
-            </div>
-            <div class="step-card step-retry">
-              <div class="step-num">ATTEMPT 2</div>
-              <div class="step-meta">
-                <strong>Retry 1 &bull; Backoff: 2.1s (+300ms Jitter)</strong>
-                <span>t = 2.4s &bull; Response: 502 Bad Gateway</span>
-              </div>
-            </div>
-            <div class="step-card step-retry">
-              <div class="step-num">ATTEMPT 3</div>
-              <div class="step-meta">
-                <strong>Retry 2 &bull; Backoff: 8.4s (+800ms Jitter)</strong>
-                <span>t = 11.6s &bull; Response: 503 Service Unavailable</span>
-              </div>
-            </div>
-            <div class="step-card step-final">
-              <div class="step-num">ATTEMPT 4</div>
-              <div class="step-meta">
-                <strong>Retry 3 &bull; Backoff: 32.0s (+1.2s Jitter)</strong>
-                <span>t = 44.8s &bull; Response: 200 OK (Recovered)</span>
-              </div>
-            </div>
-          </div>
+        <!-- Quick Action Shortcut Strip -->
+        <div class="quick-action-bar">
+          <button class="cli-btn" onclick="runCommand('dispatch')"><kbd>1</kbd> dispatch</button>
+          <button class="cli-btn" onclick="runCommand('backoff')"><kbd>2</kbd> backoff-sim</button>
+          <button class="cli-btn" onclick="runCommand('inspect')"><kbd>3</kbd> inspect-hex</button>
+          <button class="cli-btn" onclick="runCommand('top')"><kbd>4</kbd> workers</button>
+          <button class="cli-btn" onclick="runCommand('clear')"><kbd>C</kbd> clear</button>
         </div>
-      </div>
 
-      <!-- Tab View 3: Idempotency Key Vault -->
-      <div class="view-tab-content" id="view-idempotency">
-        <div class="vault-container">
-          <div class="vault-header">
-            <h4>Distributed Redis Idempotency Ledger</h4>
-            <p>Guarantees exactly-once processing semantics across network retries and duplicate transmissions:</p>
+        <!-- CLI Interactive Input Bar -->
+        <div class="tui-prompt-bar">
+          <span class="prompt-user" style="color: var(--term-green); font-weight: 700;">relay@worker-01</span>
+          <span style="color: var(--term-dim);">:</span>
+          <span style="color: var(--term-cyan); font-weight: 700;">~</span>
+          <span style="color: var(--term-dim);">$</span>
+          <input type="text" id="cliInput" placeholder="Type a command (dispatch, backoff, inspect, help, clear)..." autocomplete="off" spellcheck="false" />
+          <span class="term-cursor"></span>
+        </div>
+      </section>
+
+      <!-- Right Pane: Wire Buffer & State Inspector -->
+      <aside class="tui-inspector-pane">
+        
+        <!-- Live Frame Buffer -->
+        <div class="inspector-section">
+          <div class="sec-head">
+            <span>OUTBOUND WIRE FRAME DUMP</span>
+            <span class="badge-enc">RFC 7946 &bull; SHA-256</span>
           </div>
 
-          <table class="vault-table">
+          <!-- Hex Dump Box -->
+          <pre class="hex-dump-box" id="hexDump">
+<span class="hex-addr">00000000</span>  <span class="hex-bytes">50 4f 53 54 20 2f 76 31  2f 77 65 62 68 6f 6f 6b</span>  |<span class="hex-ascii">POST /v1/webhook</span>|
+<span class="hex-addr">00000010</span>  <span class="hex-bytes">73 20 48 54 54 50 2f 31  2e 31 0d 0a 48 6f 73 74</span>  |<span class="hex-ascii">s HTTP/1.1..Host</span>|
+<span class="hex-addr">00000020</span>  <span class="hex-bytes">3a 20 61 70 69 2e 73 75  62 73 63 72 69 62 65 72</span>  |<span class="hex-ascii">: api.subscriber</span>|
+<span class="hex-addr">00000030</span>  <span class="hex-bytes">2e 70 68 0d 0a 58 2d 52  65 6c 61 79 2d 45 76 65</span>  |<span class="hex-ascii">.ph..X-Relay-Eve</span>|
+<span class="hex-addr">00000040</span>  <span class="hex-bytes">6e 74 3a 20 69 6e 76 6f  69 63 65 2e 70 61 79 6d</span>  |<span class="hex-ascii">nt: invoice.paym</span>|
+<span class="hex-addr">00000050</span>  <span class="hex-bytes">65 6e 74 5f 73 65 74 74  6c 65 64 0d 0a 49 64 65</span>  |<span class="hex-ascii">ent_settled..Ide</span>|
+<span class="hex-addr">00000060</span>  <span class="hex-bytes">6d 70 6f 74 65 6e 63 79  2d 4b 65 79 3a 20 69 64</span>  |<span class="hex-ascii">mpotency-Key: id</span>|
+<span class="hex-addr">00000070</span>  <span class="hex-bytes">65 6d 5f 63 64 6f 5f 39  34 38 66 32 63 30 31 0d</span>  |<span class="hex-ascii">em_cdo_948f2c01.</span>|</pre>
+        </div>
+
+        <!-- Worker Process Table -->
+        <div class="inspector-section" style="border-bottom: none;">
+          <div class="sec-head">
+            <span>DAEMON WORKER POOL</span>
+            <span style="font-size: 9px; color: var(--term-dim);">TOP - 16:20:10</span>
+          </div>
+
+          <table class="ascii-table">
             <thead>
               <tr>
-                <th>IDEMPOTENCY KEY</th>
-                <th>TOPIC</th>
-                <th>FIRST SEEN</th>
+                <th>PID</th>
+                <th>THREAD</th>
+                <th>QUEUE</th>
                 <th>STATE</th>
               </tr>
             </thead>
-            <tbody id="vaultTableBody">
+            <tbody id="workerTableBody">
               <tr>
-                <td><code>idem_cdo_948f2c01</code></td>
-                <td>invoice.payment_settled</td>
-                <td>Just now</td>
-                <td><span class="status-pill pill-fresh">FRESH LOCK</span></td>
+                <td><code>4091</code></td>
+                <td>worker-tx-0</td>
+                <td>billing.settled</td>
+                <td><span class="status-active">POLLING</span></td>
               </tr>
               <tr>
-                <td><code>idem_grid_1848da3</code></td>
-                <td>grid.meter_threshold_breach</td>
-                <td>2m ago</td>
-                <td><span class="status-pill pill-replay">REPLAY GUARD (CACHED)</span></td>
+                <td><code>4092</code></td>
+                <td>worker-tx-1</td>
+                <td>grid.telemetry</td>
+                <td><span class="status-active">POLLING</span></td>
               </tr>
               <tr>
-                <td><code>idem_auth_7832ef1</code></td>
-                <td>identity.auth_session_revoked</td>
-                <td>14m ago</td>
-                <td><span class="status-pill pill-replay">EXPIRED (TTL 24H)</span></td>
+                <td><code>4093</code></td>
+                <td>worker-retry</td>
+                <td>backoff.jitter</td>
+                <td><span class="status-retry">DELAY (2.4s)</span></td>
+              </tr>
+              <tr>
+                <td><code>4094</code></td>
+                <td>worker-crypto</td>
+                <td>hmac.sha256</td>
+                <td><span class="status-active">IDLE</span></td>
               </tr>
             </tbody>
           </table>
         </div>
+
+      </aside>
+
+    </main>
+
+    <!-- TUI Bottom Status Bar -->
+    <footer class="tui-bottom-status">
+      <div class="key-shortcuts">
+        <span><strong>F1</strong> Help</span>
+        <span><strong>F2</strong> Dispatch</span>
+        <span><strong>F3</strong> Backoff</span>
+        <span><strong>F4</strong> HexDump</span>
+        <span><strong>F10</strong> Quit</span>
       </div>
+      <div>UTF-8 &bull; 140x42 &bull; 0 ERRORS</div>
+    </footer>
 
-      <!-- Bottom Terminal Event Stream -->
-      <div class="live-tail">
-        <div class="tail-header">
-          <span>EVENT BUS TAIL &bull; REDIS STREAMS</span>
-          <span class="tail-pulse"></span>
-        </div>
-        <div class="tail-logs" id="tailLogs">
-          <div class="log-line"><code>[10:24:18.040]</code> &bull; INGEST: Received trigger for topic <code>invoice.payment_settled</code></div>
-          <div class="log-line"><code>[10:24:18.041]</code> &bull; CRYPTO: Computed SHA-256 HMAC digest in 0.18ms</div>
-          <div class="log-line text-success"><code>[10:24:18.044]</code> &bull; DISPATCH: HTTP 200 delivered to endpoint in 1.4ms</div>
-        </div>
-      </div>
-
-    </section>
-
-  </main>
+  </div>
 
   <script src="app.js"></script>
 </body>
 </html>
-
