@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>relayctl — Distributed Webhook Dispatch & TUI Terminal Console</title>
+  <title>relayctl - Distributed Webhook Dispatch &amp; TUI Terminal Console</title>
   <meta name="description" content="An authentic interactive terminal emulator and TUI console for inspecting distributed webhook delivery, idempotency key caches, and exponential retry backoff.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,7 +22,7 @@
           <span class="dot dot-yellow"></span>
           <span class="dot dot-green"></span>
         </div>
-        <span class="term-title">relayctl &bull; v2.4.0 (x86_64-unknown-linux-musl)</span>
+        <span class="term-title">relayctl // v2.4.0 (x86_64-unknown-linux-musl)</span>
       </div>
       <div class="title-stats">
         <span class="stat-item">CLUSTER: <strong>ap-southeast-1 (PH)</strong></span>
@@ -35,7 +35,7 @@
     <div class="tui-hud">
       <div class="hud-spark">
         <span style="color: var(--term-dim);">THROUGHPUT:</span>
-        <span class="spark-bars" id="sparkline">[ ▃▅▇█▇▅▃ ▃▅▇█ ]</span>
+        <span class="spark-bars" id="sparkline">[ |||||||||||| ]</span>
         <span class="hud-rate"><strong id="reqSec">4,280</strong> req/s</span>
       </div>
       <div>
@@ -54,7 +54,7 @@
       <!-- Left Pane: Interactive REPL Terminal -->
       <section class="tui-console-pane">
         <div class="pane-header-strip">
-          <span class="pane-title">TERMINAL SESSION &bull; PTS/1</span>
+          <span class="pane-title">TERMINAL SESSION // PTS/1</span>
           <span>BASH 5.2.15</span>
         </div>
 
@@ -62,17 +62,17 @@
         <div class="console-scroll-stage" id="termStage">
           
           <pre class="term-banner">
-┌──────────────────────────────────────────────────────────────┐
-│  RELAY CORE CLI &bull; DISTRIBUTED EVENT ENGINE (v2.4.0)          │
-│  Type '<span class="highlight">help</span>' for available commands or use quick actions below.│
-└──────────────────────────────────────────────────────────────┘</pre>
++--------------------------------------------------------------+
+|  RELAY CORE CLI // DISTRIBUTED EVENT ENGINE (v2.4.0)         |
+|  Type '<span class="highlight">help</span>' for available commands or use quick actions.   |
++--------------------------------------------------------------+</pre>
 
           <div class="term-output-block">
             <div class="cmd-echo">
               <span class="prompt-user">relay@worker-01</span><span class="prompt-sep">:</span><span class="prompt-path">~</span>$ <span class="cmd-txt">relayctl status --all</span>
             </div>
-            <div class="resp-line resp-success">&bull; Cluster healthy: 16 daemon workers active across regional queue.</div>
-            <div class="resp-line resp-dim">&bull; Redis Idempotency Ledger: 142 keys cached (TTL: 86400s).</div>
+            <div class="resp-line resp-success">// Cluster healthy: 16 daemon workers active across regional queue.</div>
+            <div class="resp-line resp-dim">// Redis Idempotency Ledger: 142 keys cached (TTL: 86400s).</div>
           </div>
 
         </div>
@@ -80,9 +80,11 @@
         <!-- Quick Action Shortcut Strip -->
         <div class="quick-action-bar">
           <button class="cli-btn" onclick="runCommand('dispatch')"><kbd>1</kbd> dispatch</button>
-          <button class="cli-btn" onclick="runCommand('backoff')"><kbd>2</kbd> backoff-sim</button>
-          <button class="cli-btn" onclick="runCommand('inspect')"><kbd>3</kbd> inspect-hex</button>
-          <button class="cli-btn" onclick="runCommand('top')"><kbd>4</kbd> workers</button>
+          <button class="cli-btn" onclick="runCommand('replay')"><kbd>2</kbd> test-replay</button>
+          <button class="cli-btn" onclick="runCommand('backoff')"><kbd>3</kbd> backoff-sim</button>
+          <button class="cli-btn" onclick="runCommand('inspect')"><kbd>4</kbd> inspect-hex</button>
+          <button class="cli-btn" onclick="runCommand('keys')"><kbd>5</kbd> idemp-keys</button>
+          <button class="cli-btn" onclick="runCommand('top')"><kbd>6</kbd> workers</button>
           <button class="cli-btn" onclick="runCommand('clear')"><kbd>C</kbd> clear</button>
         </div>
 
@@ -92,7 +94,7 @@
           <span style="color: var(--term-dim);">:</span>
           <span style="color: var(--term-cyan); font-weight: 700;">~</span>
           <span style="color: var(--term-dim);">$</span>
-          <input type="text" id="cliInput" placeholder="Type a command (dispatch, backoff, inspect, help, clear)..." autocomplete="off" spellcheck="false" />
+          <input type="text" id="cliInput" placeholder="Type command (dispatch, replay, backoff, inspect, keys, top, export, clear)..." autocomplete="off" spellcheck="false" />
           <span class="term-cursor"></span>
         </div>
       </section>
@@ -104,7 +106,7 @@
         <div class="inspector-section">
           <div class="sec-head">
             <span>OUTBOUND WIRE FRAME DUMP</span>
-            <span class="badge-enc">RFC 7946 &bull; SHA-256</span>
+            <span class="badge-enc">RFC 7946 // SHA-256</span>
           </div>
 
           <!-- Hex Dump Box -->
@@ -123,7 +125,7 @@
         <div class="inspector-section" style="border-bottom: none;">
           <div class="sec-head">
             <span>DAEMON WORKER POOL</span>
-            <span style="font-size: 9px; color: var(--term-dim);">TOP - 16:20:10</span>
+            <span style="font-size: 9px; color: var(--term-dim);" id="topTime">TOP - 16:20:10</span>
           </div>
 
           <table class="ascii-table">
@@ -175,9 +177,9 @@
         <span><strong>F2</strong> Dispatch</span>
         <span><strong>F3</strong> Backoff</span>
         <span><strong>F4</strong> HexDump</span>
-        <span><strong>F10</strong> Quit</span>
+        <span><strong>F10</strong> Export</span>
       </div>
-      <div>UTF-8 &bull; 140x42 &bull; 0 ERRORS</div>
+      <div>ASCII-7 // 140x42 // 0 ERRORS</div>
     </footer>
 
   </div>

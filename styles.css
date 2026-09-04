@@ -1,13 +1,5 @@
-/* Relay Core CLI — Authentic UNIX Terminal Emulator / TUI
-   Inspirations: k9s, lazygit, htop, GitHub CLI, Warp terminal
-   Structure:
-   - Full-bleed matte terminal chrome (#0b0f14)
-   - Real interactive shell with prompt `relay@node-01:~$`
-   - Interactive command parser (`help`, `dispatch`, `backoff`, `inspect`, `clear`, `top`)
-   - Split panes with authentic box-drawing ASCII characters (┌─┐, │, └─┘)
-   - Hex dump inspector for wire frames
-   - Live ASCII sparkline throughput graph
-*/
+/* Relay Core CLI - Authentic UNIX Terminal Emulator / TUI */
+/* Character Encoding: 100% 7-Bit ASCII - Clean Typography & TUI Standards */
 
 :root {
   --term-bg: #0b0f14;
@@ -86,22 +78,23 @@ body {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+  display: inline-block;
 }
 
-.dot-red { background: #ff5f56; }
-.dot-yellow { background: #ffbd2e; }
-.dot-green { background: #27c93f; }
+.dot-red { background: #ff5f56; border: 1px solid #e0443e; }
+.dot-yellow { background: #ffbd2e; border: 1px solid #dea123; }
+.dot-green { background: #27c93f; border: 1px solid #1aab29; }
 
 .term-title {
   font-weight: 700;
-  font-size: 11.5px;
   color: var(--term-bright);
+  font-size: 11.5px;
   letter-spacing: 0.05em;
 }
 
 .title-stats {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   font-size: 10.5px;
   color: var(--term-dim);
 }
@@ -110,15 +103,16 @@ body {
   color: var(--term-cyan);
 }
 
-/* TUI Top Status & Sparkline HUD */
+/* Top TUI Telemetry & Sparkline HUD */
 .tui-hud {
   background: var(--term-surface);
   border-bottom: 1px solid var(--term-border);
-  padding: 8px 16px;
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 16px;
+  padding: 6px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .hud-spark {
@@ -130,23 +124,22 @@ body {
 .spark-bars {
   color: var(--term-green);
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
 }
 
 .hud-rate strong {
   color: var(--term-bright);
 }
 
-/* Main Split Viewport */
+/* TUI Split Workspace */
 .tui-workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  height: calc(100vh - 120px);
+  grid-template-columns: 1fr 480px;
   overflow: hidden;
 }
 
-/* Left Pane: Interactive Console & REPL */
+/* Left Pane: Interactive REPL Terminal */
 .tui-console-pane {
   display: flex;
   flex-direction: column;
@@ -156,45 +149,59 @@ body {
 }
 
 .pane-header-strip {
-  background: var(--term-panel);
+  background: #121822;
   border-bottom: 1px solid var(--term-border);
-  padding: 6px 14px;
+  padding: 4px 14px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
   font-size: 10px;
-  font-weight: 700;
   color: var(--term-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .pane-title {
   color: var(--term-cyan);
-  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .console-scroll-stage {
   flex: 1;
-  padding: 14px 16px;
+  padding: 14px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  font-family: var(--font-mono);
+}
+
+.console-scroll-stage::-webkit-scrollbar {
+  width: 5px;
+}
+
+.console-scroll-stage::-webkit-scrollbar-thumb {
+  background: var(--term-border);
+  border-radius: 2px;
 }
 
 .term-banner {
-  color: var(--term-dim);
-  font-size: 10.5px;
+  color: var(--term-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
   line-height: 1.35;
   margin-bottom: 8px;
+  white-space: pre;
 }
 
-.term-banner .highlight {
-  color: var(--term-cyan);
+.highlight {
+  color: var(--term-amber);
   font-weight: 700;
 }
 
 .term-output-block {
-  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .cmd-echo {
@@ -202,24 +209,29 @@ body {
   font-weight: 600;
 }
 
-.cmd-echo .prompt-user { color: var(--term-green); }
-.cmd-echo .prompt-sep { color: var(--term-dim); }
-.cmd-echo .prompt-path { color: var(--term-cyan); }
+.prompt-user { color: var(--term-green); font-weight: 700; }
+.prompt-sep { color: var(--term-dim); }
+.prompt-path { color: var(--term-cyan); font-weight: 700; }
+.cmd-txt { color: var(--term-bright); font-weight: 700; }
 
 .resp-line {
-  margin-left: 4px;
+  padding-left: 12px;
   color: var(--term-fg);
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 
 .resp-success { color: var(--term-green); }
 .resp-warn { color: var(--term-amber); }
 .resp-alert { color: var(--term-red); }
+.resp-cyan { color: var(--term-cyan); }
 .resp-dim { color: var(--term-dim); }
 
-/* Quick Action Keyboard Shortcut Toolbar */
+/* Quick Action Shortcut Strip */
 .quick-action-bar {
-  background: var(--term-surface);
+  background: #101620;
   border-top: 1px solid var(--term-border);
+  border-bottom: 1px solid var(--term-border);
   padding: 6px 12px;
   display: flex;
   gap: 8px;
@@ -227,41 +239,43 @@ body {
 }
 
 .cli-btn {
-  background: var(--term-panel);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--term-border);
-  color: var(--term-bright);
+  color: var(--term-fg);
+  padding: 4px 10px;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  padding: 4px 10px;
   cursor: pointer;
   border-radius: 3px;
-  white-space: nowrap;
   transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .cli-btn:hover {
   background: var(--term-highlight);
+  color: var(--term-bright);
   border-color: var(--term-cyan);
 }
 
 .cli-btn kbd {
-  background: rgba(255,255,255,0.1);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--term-border);
   padding: 1px 4px;
   border-radius: 2px;
-  color: var(--term-cyan);
   font-size: 9px;
-  margin-right: 4px;
+  color: var(--term-cyan);
 }
 
-/* CLI Interactive Prompt Input */
+/* CLI Interactive Prompt Input Bar */
 .tui-prompt-bar {
-  background: var(--term-panel);
-  border-top: 1px solid var(--term-border);
+  background: #0d121a;
   padding: 8px 14px;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
 }
 
 .tui-prompt-bar input {
@@ -277,7 +291,7 @@ body {
 .term-cursor {
   width: 7px;
   height: 14px;
-  background: var(--term-green);
+  background: var(--term-cyan);
   display: inline-block;
   animation: blinkCursor 1s infinite;
 }
@@ -287,11 +301,11 @@ body {
   50%, 100% { opacity: 0; }
 }
 
-/* Right Pane: Wire Buffer & Distributed State */
+/* Right Pane: Wire Buffer & State Inspector */
 .tui-inspector-pane {
+  background: var(--term-surface);
   display: flex;
   flex-direction: column;
-  background: var(--term-surface);
   overflow-y: auto;
 }
 
@@ -307,40 +321,43 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
-  color: var(--term-bright);
+  color: var(--term-dim);
+  letter-spacing: 0.08em;
 }
 
 .badge-enc {
-  background: rgba(88, 166, 255, 0.15);
-  border: 1px solid rgba(88, 166, 255, 0.4);
+  background: rgba(88, 166, 255, 0.12);
+  border: 1px solid rgba(88, 166, 255, 0.3);
   color: var(--term-cyan);
+  padding: 2px 6px;
+  border-radius: 3px;
   font-size: 9px;
-  padding: 1px 6px;
-  border-radius: 2px;
 }
 
-/* Raw Hex Dump Inspector */
+/* Hex Dump Wire Frame Viewer */
 .hex-dump-box {
   background: #080b0f;
   border: 1px solid var(--term-border);
-  padding: 8px 10px;
+  padding: 10px 12px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
   font-size: 10px;
-  line-height: 1.45;
-  color: var(--term-dim);
+  line-height: 1.5;
   overflow-x: auto;
+  color: var(--term-fg);
 }
 
-.hex-addr { color: #8b949e; }
+.hex-addr { color: var(--term-dim); }
 .hex-bytes { color: var(--term-cyan); }
-.hex-ascii { color: var(--term-green); }
+.hex-ascii { color: var(--term-amber); }
 
-/* ASCII Process Table (Top/Htop Style) */
+/* Worker Daemon Table */
 .ascii-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .ascii-table th {
@@ -348,23 +365,25 @@ body {
   color: var(--term-dim);
   padding-bottom: 6px;
   border-bottom: 1px solid var(--term-border);
+  font-size: 9.5px;
 }
 
 .ascii-table td {
-  padding: 5px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.status-active { color: var(--term-green); font-weight: 700; }
-.status-retry { color: var(--term-amber); }
+.status-active { color: var(--term-green); font-weight: 600; }
+.status-retry { color: var(--term-amber); font-weight: 600; }
 
-/* TUI Bottom Status Bar (Nano/Vim Style) */
+/* TUI Bottom Status Bar */
 .tui-bottom-status {
-  background: #182230;
+  background: #161e2b;
   border-top: 1px solid var(--term-border);
   padding: 4px 14px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 10px;
   color: var(--term-dim);
   flex-shrink: 0;
@@ -372,26 +391,23 @@ body {
 
 .key-shortcuts {
   display: flex;
-  gap: 14px;
+  gap: 16px;
 }
 
 .key-shortcuts span strong {
-  background: #253346;
-  color: var(--term-bright);
-  padding: 1px 4px;
-  border-radius: 2px;
+  color: var(--term-cyan);
 }
 
 /* Responsive */
-@media (max-width: 900px) {
+@media (max-width: 1080px) {
   .tui-workspace {
     grid-template-columns: 1fr;
     height: auto;
     overflow-y: auto;
   }
   .tui-console-pane {
+    height: 480px;
     border-right: none;
     border-bottom: 1px solid var(--term-border);
-    height: 480px;
   }
 }
