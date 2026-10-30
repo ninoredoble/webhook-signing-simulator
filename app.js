@@ -1,360 +1,567 @@
-// relayctl - Interactive Terminal Emulator & Distributed Webhook Engine
-// Character Encoding: 100% 7-Bit ASCII - Clean Typography & Network RFC Standards
+// relay-core-api: webhook signing and retry simulator.
+// An interactive study. Everything runs in this page; nothing is sent anywhere.
 
-// In-Memory Idempotency & Delivery Ledger
-const IdempotencyLedger = new Map([
-  ["idem_cdo_948f2c01", {
-    topic: "invoice.payment_settled",
-    deliveryId: "deliv_948f2c010a",
-    signature: "t=1725482900,v1=9fa8e3b211dc",
-    status: "DELIVERED_200",
-    ttl: 84210,
-    timestamp: "2026-09-04T16:15:00Z"
-  }],
-  ["idem_grid_1848da3", {
-    topic: "grid.meter_overload",
-    deliveryId: "deliv_1848da39b4",
-    signature: "t=1725482120,v1=2c83ef4a8901",
-    status: "DELIVERED_200",
-    ttl: 81920,
-    timestamp: "2026-09-04T16:02:00Z"
-  }],
-  ["idem_auth_7832ef1", {
-    topic: "identity.token_revoked",
-    deliveryId: "deliv_7832ef190e",
-    signature: "t=1725476600,v1=67ef89a014bc",
-    status: "DELIVERED_200",
-    ttl: 76400,
-    timestamp: "2026-09-04T14:30:00Z"
-  }]
-]);
+'use strict';
 
-let lastDispatchedKey = "idem_cdo_948f2c01";
-let commandHistory = [];
-let historyIndex = -1;
+const $ = (sel, root = document) => root.querySelector(sel);
+const enc = new TextEncoder();
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-// Command Dispatch Registry
-const COMMANDS = {
-  "help": () => `
-<div class="resp-line resp-dim">Available CLI commands:</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">dispatch [topic] [key]</strong> : Ingests event, checks idempotency lock, dispatches signed webhook.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">replay [key]</strong>           : Attempts duplicate delivery to demonstrate atomic replay guard.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">backoff</strong>                : Runs Decorrelated Jitter Exponential Retry simulation (N=5).</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">inspect [key]</strong>          : Updates right pane with RFC 7946 raw hex wire frame.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">keys</strong>                   : Queries Redis distributed idempotency lock ledger.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">top</strong>                    : Refreshes background daemon worker process pool.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">export</strong>                 : Exports complete delivery & audit trail to JSON.</div>
-<div class="resp-line">// <strong style="color: var(--term-cyan);">clear</strong>                  : Clears terminal scrollback buffer.</div>
-  `,
+/* ---------- HMAC-SHA256 through Web Crypto ---------- */
 
-  "status": () => `
-<div class="resp-line resp-success">// [CLUSTER STATUS] All 16 daemon workers active in regional queue (ap-southeast-1).</div>
-<div class="resp-line">// Ingress Throughput: 4,280 req/s // P99 Wire Latency: 1.42 ms</div>
-<div class="resp-line">// Redis Idempotency Ledger: ${IdempotencyLedger.size} active locks cached (TTL: 86400s).</div>
-<div class="resp-line">// Replay Protection Guard: 100% ATOMIC // Rejection Rate: 0.00%</div>
-  `,
+const toHex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-  "dispatch": (args) => {
-    const topic = args[0] || "invoice.payment_settled";
-    const key = args[1] || ("idem_cdo_" + Math.random().toString(16).substring(2, 8));
+async function hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return toHex(await crypto.subtle.sign('HMAC', key, enc.encode(message)));
+}
 
-    // Idempotency Check
-    if (IdempotencyLedger.has(key)) {
-      const cached = IdempotencyLedger.get(key);
-      return `
-<div class="resp-line resp-alert">// [HTTP 409 CONFLICT] REPLAY BLOCKED // Duplicate Idempotency Key: <code>${key}</code></div>
-<div class="resp-line resp-warn">// [REPLAY GUARD] Replay attempt rejected. Returning cached delivery: <code>${cached.deliveryId}</code></div>
-<div class="resp-line resp-dim">// Original Timestamp: ${cached.timestamp} // Cached Status: ${cached.status}</div>
-      `;
-    }
+// Compares every character instead of stopping at the first difference.
+// JavaScript offers no real timing guarantee; this shows the shape of the idea.
+function safeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
-    const delivId = "deliv_" + Math.random().toString(16).substring(2, 10);
-    const ts = Math.floor(Date.now() / 1000);
-    const hmacSig = "t=" + ts + ",v1=" + Math.random().toString(16).substring(2, 14);
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
-    IdempotencyLedger.set(key, {
-      topic: topic,
-      deliveryId: delivId,
-      signature: hmacSig,
-      status: "DELIVERED_200",
-      ttl: 86400,
-      timestamp: new Date().toISOString()
-    });
-
-    lastDispatchedKey = key;
-    renderHexDump(topic, key, delivId, hmacSig);
-
-    return `
-<div class="resp-line resp-success">// [INGEST] Inbound event queued: <code>${topic}</code></div>
-<div class="resp-line">// [HMAC-SHA256] Wire Signature: <code>${hmacSig}</code></div>
-<div class="resp-line">// [IDEMPOTENCY] Acquired distributed lock: <code>${key}</code> (TTL: 86400s)</div>
-<div class="resp-line resp-success">// [HTTP 200 OK] Delivered to <code>api.subscriber.ph</code> in 1.42ms (Delivery: <code>${delivId}</code>)</div>
-    `;
-  },
-
-  "replay": (args) => {
-    const targetKey = args[0] || lastDispatchedKey;
-    if (!IdempotencyLedger.has(targetKey)) {
-      return `<div class="resp-line resp-warn">// Key <code>${targetKey}</code> not found in ledger. Dispatching first.</div>`;
-    }
-
-    const cached = IdempotencyLedger.get(targetKey);
-    return `
-<div class="resp-line resp-alert">// [SIMULATED NETWORK REPLAY] Resending event with key: <code>${targetKey}</code></div>
-<div class="resp-line resp-alert">// [HTTP 409 CONFLICT] ATOMIC IDEMPOTENCY GUARD TRIPPED!</div>
-<div class="resp-line resp-warn">// Idempotent Lock Active: Event already settled at ${cached.timestamp}.</div>
-<div class="resp-line resp-success">// Redundant downstream processing averted. Zero duplicate charge.</div>
-    `;
-  },
-
-  "backoff": (args) => {
-    const attempts = parseInt(args[0], 10) || 5;
-    let baseDelay = 1.0;
-    let lines = [`<div class="resp-line resp-warn">// SIMULATING SUBSCRIBER 504 TIMEOUT (Decorrelated Exponential Jitter):</div>`];
-
-    let currentSleep = baseDelay;
-    let totalTime = 0.0;
-
-    for (let i = 1; i <= attempts; i++) {
-      if (i === 1) {
-        lines.push(`<div class="resp-line resp-dim">  [Attempt 1] t = 0.0s // Immediate Dispatch -> HTTP 504 Gateway Timeout</div>`);
-      } else if (i < attempts) {
-        // Decorrelated jitter: sleep = min(cap, random(base, sleep * 3))
-        const jitter = (Math.random() * (currentSleep * 3 - baseDelay) + baseDelay).toFixed(2);
-        totalTime += parseFloat(jitter);
-        currentSleep = parseFloat(jitter);
-        lines.push(`<div class="resp-line resp-dim">  [Attempt ${i}] t = ${totalTime.toFixed(1)}s // Exponential Step ${i-1} (${currentSleep}s Jitter Delay) -> HTTP 503 Service Unavailable</div>`);
-      } else {
-        const jitter = (Math.random() * (currentSleep * 3 - baseDelay) + baseDelay).toFixed(2);
-        totalTime += parseFloat(jitter);
-        lines.push(`<div class="resp-line resp-success">  [Attempt ${i}] t = ${totalTime.toFixed(1)}s // Retry Step ${i-1} -> HTTP 200 OK (Subscriber Circuit Restored!)</div>`);
-      }
-    }
-
-    return lines.join("\n");
-  },
-
-  "inspect": (args) => {
-    const key = args[0] || lastDispatchedKey;
-    const entry = IdempotencyLedger.get(key) || {
-      topic: "invoice.payment_settled",
-      deliveryId: "deliv_948f2c010a",
-      signature: "t=1725482900,v1=9fa8e3b211dc"
-    };
-
-    renderHexDump(entry.topic, key, entry.deliveryId, entry.signature);
-    return `
-<div class="resp-line resp-cyan">// [WIRE BUFFER INSPECTOR] Frame RFC 7946:</div>
-<div class="resp-line">  POST /v1/webhooks HTTP/1.1</div>
-<div class="resp-line">  Host: api.subscriber.ph</div>
-<div class="resp-line">  X-Relay-Event: ${entry.topic}</div>
-<div class="resp-line">  Idempotency-Key: ${key}</div>
-<div class="resp-line">  X-Relay-Signature: ${entry.signature}</div>
-<div class="resp-line resp-dim">  (See right pane for raw 16-byte hex dump and ASCII offsets)</div>
-    `;
-  },
-
-  "keys": () => {
-    let lines = [`<div class="resp-line resp-cyan">// [REDIS IDEMPOTENCY LEDGER] Active Distributed Locks:</div>`];
-    IdempotencyLedger.forEach((val, key) => {
-      lines.push(`<div class="resp-line">  KEY: <code>${key}</code> // TOPIC: ${val.topic} // STATUS: <span style="color:var(--term-green);">${val.status}</span> // TTL: ${val.ttl}s</div>`);
-    });
-    return lines.join("\n");
-  },
-
-  "top": () => {
-    refreshWorkers();
-    return `<div class="resp-line resp-success">// Refreshed 16 worker threads. All daemon queues synchronized.</div>`;
-  },
-
-  "export": () => {
-    exportRelayAuditJSON();
-    return `<div class="resp-line resp-success">// [AUDIT LOG EXPORTED] Downloaded relay_audit_ledger.json.</div>`;
-  },
-
-  "clear": () => {
-    document.getElementById("termStage").innerHTML = `
-<pre class="term-banner">
-+--------------------------------------------------------------+
-|  RELAY CORE CLI // DISTRIBUTED EVENT ENGINE (v2.4.0)         |
-|  Type '<span class="highlight">help</span>' for available commands or use quick actions.   |
-+--------------------------------------------------------------+</pre>
-    `;
-    return "";
+// Renders `str` with characters that differ from `other` wrapped in .chg
+function diffSpans(target, str, other) {
+  target.textContent = '';
+  let run = '';
+  let runChanged = false;
+  const flush = () => {
+    if (!run) return;
+    if (runChanged) target.append(el('span', 'chg', run));
+    else target.append(document.createTextNode(run));
+    run = '';
+  };
+  for (let i = 0; i < str.length; i++) {
+    const changed = other !== undefined && str[i] !== other[i];
+    if (changed !== runChanged) { flush(); runChanged = changed; }
+    run += str[i];
   }
-};
+  flush();
+}
 
-document.addEventListener("DOMContentLoaded", () => {
-  const input = document.getElementById("cliInput");
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      const val = input.value.trim();
-      input.value = "";
-      if (val) {
-        commandHistory.push(val);
-        historyIndex = commandHistory.length;
-        handleCommand(val);
-      }
-    } else if (e.key === "ArrowUp") {
-      if (historyIndex > 0) {
-        historyIndex--;
-        input.value = commandHistory[historyIndex];
-      }
-    } else if (e.key === "ArrowDown") {
-      if (historyIndex < commandHistory.length - 1) {
-        historyIndex++;
-        input.value = commandHistory[historyIndex];
-      } else {
-        historyIndex = commandHistory.length;
-        input.value = "";
-      }
-    }
-  });
+function countDiff(a, b) {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+  return n;
+}
 
-  // Global Keyboard shortcuts F1-F4, F10
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "F1") { e.preventDefault(); runCommand("help"); }
-    if (e.key === "F2") { e.preventDefault(); runCommand("dispatch"); }
-    if (e.key === "F3") { e.preventDefault(); runCommand("backoff"); }
-    if (e.key === "F4") { e.preventDefault(); runCommand("inspect"); }
-    if (e.key === "F10") { e.preventDefault(); runCommand("export"); }
-  });
+/* ---------- Sign a payload ---------- */
 
-  // Jitter Throughput Rate
-  setInterval(() => {
-    const rateEl = document.getElementById("reqSec");
-    if (rateEl) {
-      const jitter = Math.floor(Math.random() * 200 - 100);
-      rateEl.innerText = (4280 + jitter).toLocaleString();
-    }
-    const sparkEl = document.getElementById("sparkline");
-    if (sparkEl) {
-      const bars = ["||||||||||||", "|||||||||||.", "||||||||||..", "||||||||||||", "|||||||||||#"];
-      sparkEl.innerText = `[ ${bars[Math.floor(Math.random() * bars.length)]} ]`;
-    }
-  }, 1800);
-});
+let prevSig = null;
+let signSeq = 0;
 
-function handleCommand(cmdString) {
-  const stage = document.getElementById("termStage");
-  const parts = cmdString.split(" ");
-  const root = parts[0].toLowerCase();
-  const args = parts.slice(1);
+function currentSender() {
+  return {
+    secret: $('#secret').value,
+    t: $('#ts').value.trim(),
+    body: $('#body').value,
+  };
+}
 
-  // Echo Command
-  const block = document.createElement("div");
-  block.className = "term-output-block";
-  block.innerHTML = `
-    <div class="cmd-echo">
-      <span class="prompt-user">relay@worker-01</span><span class="prompt-sep">:</span><span class="prompt-path">~</span>$ <span class="cmd-txt">${cmdString}</span>
-    </div>
-  `;
+async function updateSign() {
+  const mine = ++signSeq;
+  const sender = currentSender();
+  const signed = `${sender.t}.${sender.body}`;
 
-  if (COMMANDS[root]) {
-    const resp = COMMANDS[root](args);
-    if (resp) block.innerHTML += resp;
+  const stamp = $('#signedString');
+  stamp.textContent = '';
+  stamp.append(el('span', 'dim', `${sender.t}.`), document.createTextNode(sender.body));
+
+  if (!sender.secret) {
+    $('#sigOut').textContent = 'Enter a secret to sign with.';
+    $('#reqOut').textContent = '';
+    $('#delta').textContent = '';
+    sender.sig = null;
+    updateVerify(sender);
+    return;
+  }
+
+  let sig;
+  try {
+    sig = await hmacHex(sender.secret, signed);
+  } catch (err) {
+    $('#sigOut').textContent = 'Web Crypto is not available here. Open this page over https or from localhost.';
+    return;
+  }
+  if (mine !== signSeq) return;
+
+  diffSpans($('#sigOut'), sig, prevSig || undefined);
+  $('#delta').textContent = prevSig && prevSig !== sig ? `${countDiff(sig, prevSig)} of 64 characters changed` : '';
+  prevSig = sig;
+
+  $('#reqOut').textContent =
+    `POST /hooks/study HTTP/1.1\nHost: subscriber.example\nContent-Type: application/json\n` +
+    `Relay-Signature: t=${sender.t},v1=${sig}\n\n${sender.body}`;
+
+  $('#heroReq').textContent = $('#reqOut').textContent;
+  sender.sig = sig;
+  updateVerify(sender);
+}
+
+async function copyRequest() {
+  const btn = $('#copyReq');
+  try {
+    await navigator.clipboard.writeText($('#reqOut').textContent);
+    btn.textContent = 'Copied';
+  } catch (err) {
+    btn.textContent = 'Select and copy instead';
+  }
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+}
+
+// RFC 4231, test case 2.
+async function runVector() {
+  const out = $('#vectorOut');
+  const expected = '5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843';
+  try {
+    const got = await hmacHex('Jefe', 'what do ya want for nothing?');
+    const same = got === expected;
+    out.className = same ? 'ok' : 'bad';
+    out.textContent = same
+      ? `Match. key "Jefe", data "what do ya want for nothing?" gives ${got}`
+      : `No match. Got ${got}`;
+  } catch (err) {
+    out.className = 'bad';
+    out.textContent = 'Web Crypto is not available here.';
+  }
+}
+
+/* ---------- Verify as the receiver ---------- */
+
+let verifySeq = 0;
+let lastSender = null;
+
+function alterBody(body) {
+  const altered = body.replace(/(\d)(?!.*\d)/s, (d) => String((Number(d) + 1) % 10));
+  return altered === body ? body + ' ' : altered;
+}
+
+async function updateVerify(sender) {
+  if (sender) lastSender = sender;
+  sender = lastSender;
+  if (!sender) return;
+  const mine = ++verifySeq;
+
+  const age = Number($('#age').value);
+  const tol = Math.max(1, Number($('#tol').value) || 300);
+  $('#ageOut').textContent = age;
+
+  const tampered = $('#tamper').checked;
+  const wrong = $('#wrongSecret').checked;
+  const gotBody = tampered ? alterBody(sender.body) : sender.body;
+  const recvSecret = wrong ? `${sender.secret}-rotated` : sender.secret;
+
+  // body the receiver got
+  const gotEl = $('#gotBody');
+  gotEl.textContent = '';
+  if (tampered && gotBody !== sender.body) {
+    let i = 0;
+    while (i < gotBody.length && gotBody[i] === sender.body[i]) i++;
+    gotEl.append(
+      document.createTextNode(gotBody.slice(0, i)),
+      el('span', 'chg', gotBody[i] === ' ' ? '·' : gotBody[i]),
+      document.createTextNode(gotBody.slice(i + 1))
+    );
   } else {
-    block.innerHTML += `
-      <div class="resp-line resp-alert">// relayctl: command not found: <code>${root}</code>. Type <strong>help</strong> for options.</div>
-    `;
+    gotEl.textContent = gotBody;
   }
 
-  stage.appendChild(block);
-  stage.scrollTop = stage.scrollHeight;
-}
+  const header = sender.sig ? `t=${sender.t},v1=${sender.sig}` : '';
+  const parsed = header.match(/^t=(\d+),v1=([0-9a-f]{64})$/);
 
-function runCommand(cmd) {
-  handleCommand(cmd);
-}
-
-// Generate Real Hex Dump from Wire Frame
-function renderHexDump(topic, key, delivId, sig) {
-  const wireText = `POST /v1/webhooks HTTP/1.1\r\nHost: api.subscriber.ph\r\nX-Relay-Event: ${topic}\r\nIdempotency-Key: ${key}\r\nX-Relay-Delivery: ${delivId}\r\nX-Signature: ${sig}\r\nContent-Type: application/json\r\n\r\n{"status":"settled","cur":"PHP"}`;
-
-  const hexLines = [];
-  const bytes = [];
-  for (let i = 0; i < wireText.length; i++) {
-    bytes.push(wireText.charCodeAt(i));
+  let computed = null;
+  if (parsed && recvSecret) {
+    try { computed = await hmacHex(recvSecret, `${parsed[1]}.${gotBody}`); } catch (err) { computed = null; }
   }
+  if (mine !== verifySeq) return;
 
-  for (let offset = 0; offset < Math.min(192, bytes.length); offset += 16) {
-    const chunk = bytes.slice(offset, offset + 16);
-    const addr = offset.toString(16).padStart(8, "0");
+  const fresh = age <= tol;
+  const matches = parsed && computed !== null && safeEqual(computed, parsed[2]);
 
-    let hexPart1 = "";
-    let hexPart2 = "";
-    let asciiPart = "";
-
-    for (let j = 0; j < 16; j++) {
-      if (j < chunk.length) {
-        const b = chunk[j];
-        const h = b.toString(16).padStart(2, "0");
-        if (j < 8) hexPart1 += h + " ";
-        else hexPart2 += h + " ";
-        asciiPart += (b >= 32 && b <= 126) ? String.fromCharCode(b) : ".";
-      } else {
-        if (j < 8) hexPart1 += "   ";
-        else hexPart2 += "   ";
-        asciiPart += " ";
-      }
-    }
-
-    hexLines.push(`<span class="hex-addr">${addr}</span>  <span class="hex-bytes">${hexPart1.trim()}  ${hexPart2.trim()}</span>  |<span class="hex-ascii">${asciiPart}</span>|`);
-  }
-
-  const dumpEl = document.getElementById("hexDump");
-  if (dumpEl) dumpEl.innerHTML = hexLines.join("\n");
-}
-
-function refreshWorkers() {
-  const tbody = document.getElementById("workerTableBody");
-  const timeEl = document.getElementById("topTime");
-  const now = new Date().toTimeString().split(" ")[0];
-  if (timeEl) timeEl.innerText = `TOP - ${now}`;
-
-  const workers = [
-    { pid: 4091, thread: "worker-tx-0", queue: "billing.settled", state: "POLLING", cls: "status-active" },
-    { pid: 4092, thread: "worker-tx-1", queue: "grid.telemetry", state: "POLLING", cls: "status-active" },
-    { pid: 4093, thread: "worker-retry", queue: "backoff.jitter", state: "DELAY (" + (Math.random() * 2 + 1).toFixed(1) + "s)", cls: "status-retry" },
-    { pid: 4094, thread: "worker-crypto", queue: "hmac.sha256", state: "ACTIVE", cls: "status-active" },
-    { pid: 4095, thread: "worker-idemp", queue: "redis.lru", state: "LOCK_ACQUIRED", cls: "status-active" }
+  const steps = [
+    {
+      name: 'Read t and v1 from the header',
+      ok: Boolean(parsed),
+      pass: 'Found a timestamp and a 64-character signature.',
+      fail: sender.sig ? 'The timestamp must be whole unix seconds.' : 'There is no signature to read.',
+    },
+    {
+      name: 'Check the timestamp is recent',
+      ok: fresh,
+      pass: `${age}s old, limit ${tol}s.`,
+      fail: `${age}s old, limit ${tol}s. A captured request replayed later is refused here.`,
+    },
+    {
+      name: 'Recompute the signature and compare',
+      ok: Boolean(matches),
+      pass: 'The signature the receiver computed is identical.',
+      fail: 'The signature the receiver computed is different from the one in the header.',
+    },
   ];
 
-  if (tbody) {
-    tbody.innerHTML = workers.map(w => `
-      <tr>
-        <td><code>${w.pid}</code></td>
-        <td>${w.thread}</td>
-        <td>${w.queue}</td>
-        <td><span class="${w.cls}">${w.state}</span></td>
-      </tr>
-    `).join("");
+  const list = $('#checks');
+  list.textContent = '';
+  let failed = null;
+  for (const step of steps) {
+    const li = el('li');
+    let state, text;
+    if (failed) { state = 'skip'; text = 'Not reached.'; }
+    else if (step.ok) { state = 'pass'; text = step.pass; }
+    else { state = 'fail'; text = step.fail; failed = step; }
+    const label = { pass: 'Pass', fail: 'Fail', skip: 'Skipped' }[state];
+    li.append(el('span', `res ${state}`, label));
+    const copy = el('p');
+    copy.append(el('strong', '', step.name), document.createTextNode(text));
+    li.append(copy);
+    list.append(li);
+  }
+
+  const verdict = $('#verdict');
+  verdict.textContent = '';
+  if (failed) {
+    verdict.className = 'verdict bad';
+    verdict.append(document.createTextNode('Rejected. Respond 401.'), el('small', '', failed.name + ' failed.'));
+  } else {
+    verdict.className = 'verdict ok';
+    verdict.append(document.createTextNode('Accepted. Respond 200.'), el('small', '', 'Header, freshness and signature all check out.'));
+  }
+
+  const cmp = $('#cmpOut');
+  cmp.textContent = '';
+  if (parsed && computed !== null && steps[1].ok) {
+    const a = el('span'); const b = el('span');
+    diffSpans(a, parsed[2], computed);
+    diffSpans(b, computed, parsed[2]);
+    cmp.append(el('span', 'dim', 'header    '), a, document.createTextNode('\n'), el('span', 'dim', 'computed  '), b);
+  } else if (parsed && !steps[1].ok) {
+    cmp.append(el('span', 'dim', 'Not computed. The request was refused before the signature check.'));
+  } else {
+    cmp.append(el('span', 'dim', 'Nothing to compare.'));
   }
 }
 
-function exportRelayAuditJSON() {
-  const ledgerArr = [];
-  IdempotencyLedger.forEach((v, k) => {
-    ledgerArr.push({ key: k, ...v });
+/* ---------- Retry with backoff ---------- */
+
+const STRATEGIES = [
+  { id: 'none', short: 'None', name: 'No jitter', rule: 'wait d' },
+  { id: 'full', short: 'Full', name: 'Full jitter', rule: 'wait random(0, d)' },
+  { id: 'equal', short: 'Equal', name: 'Equal jitter', rule: 'wait d/2 + random(0, d/2)' },
+  { id: 'decorr', short: 'Decorr.', name: 'Decorrelated jitter', rule: 'wait random(base, 3 × previous wait)' },
+];
+
+// Small seeded generator, so the same seed gives the same run.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function num(id, min, max, fallback) {
+  const raw = Number($(id).value);
+  const v = Number.isFinite(raw) && $(id).value !== '' ? raw : fallback;
+  return Math.min(max, Math.max(min, v));
+}
+
+function readParams() {
+  const base = num('#rBase', 0.1, 60, 1);
+  return {
+    base,
+    cap: num('#rCap', base, 3600, 30),
+    mult: num('#rMult', 1, 4, 2),
+    attempts: Math.round(num('#rMax', 2, 12, 8)),
+    failFirst: Math.round(num('#rFail', 0, 12, 5)),
+    seed: Math.round(num('#rSeed', 0, 999999, 7)),
+  };
+}
+
+// One client talking to an endpoint that fails the first `failFirst` attempts.
+// If `alwaysFail`, every attempt fails (used for the thundering-herd view).
+function schedule(kind, p, rng, alwaysFail = false) {
+  const out = [];
+  let at = 0;
+  let prevWait = p.base;
+  for (let k = 1; k <= p.attempts; k++) {
+    const ok = !alwaysFail && k > p.failFirst;
+    const entry = { n: k, at, ok };
+    out.push(entry);
+    if (ok || k === p.attempts) break;
+
+    const d = Math.min(p.cap, p.base * Math.pow(p.mult, k - 1));
+    let wait, ceil;
+    if (kind === 'none') { wait = d; ceil = d; }
+    else if (kind === 'full') { ceil = d; wait = rng() * d; }
+    else if (kind === 'equal') { ceil = d; wait = d / 2 + rng() * (d / 2); }
+    else {
+      ceil = Math.min(p.cap, prevWait * 3);
+      wait = Math.min(p.cap, p.base + rng() * Math.max(0, prevWait * 3 - p.base));
+      prevWait = wait;
+    }
+    entry.nextWait = wait;
+    entry.nextCeil = ceil;
+    at += wait;
+  }
+  return out;
+}
+
+const fmt = (s) => `${Math.round(s * 10) / 10}s`;
+
+function niceStep(span) {
+  const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800];
+  return steps.find((s) => span / s <= 6) || 3600;
+}
+
+let playRaf = 0;
+
+function renderRetry() {
+  cancelAnimationFrame(playRaf);
+  const p = readParams();
+  const lanes = STRATEGIES.map((s, i) => ({ s, run: schedule(s.id, p, mulberry32(p.seed * 31 + i + 1)) }));
+  const maxAt = Math.max(...lanes.map((l) => l.run[l.run.length - 1].at));
+  const T = maxAt > 0 ? maxAt * 1.06 : 1;
+  const PAD = 12; // px kept clear at both ends so markers stay inside the track
+  const pct = (v) => `calc(${PAD}px + (100% - ${PAD * 2}px) * ${v / T})`;
+  const span = (v) => `calc((100% - ${PAD * 2}px) * ${v / T})`;
+
+  const tracks = $('#tracks');
+  tracks.textContent = '';
+  tracks.dataset.span = T;
+  for (const { s, run } of lanes) {
+    const last = run[run.length - 1];
+    const lane = el('div', 'lane');
+    const name = el('div', 'lane-name');
+    name.append(el('strong', '', s.name));
+    name.append(el('span', '', last.ok
+      ? `${s.rule}. Delivered on attempt ${last.n} at ${fmt(last.at)}.`
+      : `${s.rule}. Gave up after ${last.n} attempts at ${fmt(last.at)}.`));
+    const track = el('div', 'track');
+    track.setAttribute('aria-hidden', 'true'); // the table below carries the same times as text
+
+    run.forEach((a, idx) => {
+      if (a.nextWait !== undefined) {
+        const g = el('span', 'ghost');
+        g.style.left = pct(a.at);
+        g.style.width = span(a.nextCeil);
+        g.dataset.at = a.at;
+        const w = el('span', 'wait');
+        w.style.left = pct(a.at);
+        w.style.width = span(a.nextWait);
+        w.dataset.at = a.at;
+        track.append(g, w);
+      }
+      const m = el('span', `mark ${a.ok ? 'ok' : 'fail'}`);
+      m.style.left = pct(a.at);
+      m.dataset.at = a.at;
+      m.title = `Attempt ${a.n} at ${fmt(a.at)}: ${a.ok ? 'delivered' : 'endpoint failed'}`;
+      track.append(m);
+    });
+    lane.append(name, track);
+    tracks.append(lane);
+  }
+  const head = el('div', 'playhead');
+  head.hidden = true;
+  head.id = 'playhead';
+  tracks.append(head);
+
+  // axis
+  const axis = $('#axis');
+  axis.textContent = '';
+  const step = niceStep(T);
+  for (let v = 0; v <= T; v += step) {
+    const tick = el('span', '', fmt(v));
+    tick.style.left = pct(v);
+    axis.append(tick);
+  }
+
+  // table
+  const table = $('#attemptsTable');
+  const thead = table.tHead; const tbody = table.tBodies[0];
+  thead.textContent = ''; tbody.textContent = '';
+  const hr = el('tr');
+  hr.append(el('th', '', 'Attempt'));
+  lanes.forEach((l) => hr.append(el('th', '', l.s.short)));
+  thead.append(hr);
+  for (let k = 1; k <= p.attempts; k++) {
+    if (!lanes.some((l) => l.run.length >= k)) break;
+    const tr = el('tr');
+    tr.append(el('td', '', String(k)));
+    for (const l of lanes) {
+      const a = l.run[k - 1];
+      tr.append(a ? el('td', a.ok ? 'ok' : 'fail', fmt(a.at)) : el('td', 'none', '-'));
+    }
+    tbody.append(tr);
+  }
+  const sum = el('tr', 'sum');
+  sum.append(el('td', '', 'Outcome'));
+  for (const l of lanes) {
+    const last = l.run[l.run.length - 1];
+    sum.append(el('td', last.ok ? 'ok' : 'fail', last.ok ? 'delivered' : 'gave up'));
+  }
+  tbody.append(sum);
+
+  renderHerd(p);
+}
+
+function playRetry() {
+  if (reduceMotion.matches) return;
+  cancelAnimationFrame(playRaf);
+  const track = $('#tracks');
+  const PAD = 12;
+  const items = [...track.querySelectorAll('[data-at]')];
+  const head = $('#playhead');
+  const span = Number(track.dataset.span);
+  items.forEach((i) => i.classList.add('unseen'));
+  head.hidden = false;
+  const duration = 5200;
+  const t0 = performance.now();
+  $('#play').disabled = true;
+
+  const frame = (now) => {
+    const f = Math.min(1, (now - t0) / duration);
+    const time = f * span;
+    head.style.left = `calc(${PAD}px + (100% - ${PAD * 2}px) * ${f})`;
+    for (const i of items) {
+      if (i.classList.contains('unseen') && Number(i.dataset.at) <= time) {
+        i.classList.remove('unseen');
+        if (i.classList.contains('mark')) { i.classList.add('pop'); }
+      }
+    }
+    if (f < 1) playRaf = requestAnimationFrame(frame);
+    else {
+      head.hidden = true;
+      $('#play').disabled = false;
+      $('#retryAnnounce').textContent = 'Playback finished.';
+    }
+  };
+  playRaf = requestAnimationFrame(frame);
+}
+
+/* ---------- The herd ---------- */
+
+function renderHerd(p) {
+  const CLIENTS = 200;
+  const BINS = 48;
+  const FIRST = 4; // look at the first four retries, where the pile-up shows
+  const results = STRATEGIES.map((s, si) => {
+    const times = [];
+    for (let c = 0; c < CLIENTS; c++) {
+      const run = schedule(s.id, p, mulberry32(p.seed * 7919 + si * 104729 + c + 1), true);
+      for (let k = 1; k < Math.min(run.length, FIRST + 1); k++) times.push(run[k].at);
+    }
+    return { s, times };
+  });
+  const end = Math.max(1, ...results.map((r) => Math.max(0, ...r.times)));
+  const width = end / BINS;
+  results.forEach((r) => {
+    r.bins = new Array(BINS).fill(0);
+    r.times.forEach((t) => { r.bins[Math.min(BINS - 1, Math.floor(t / width))]++; });
+    r.peak = Math.max(...r.bins);
+  });
+  const scale = Math.max(...results.map((r) => r.peak));
+
+  const root = $('#herdCharts');
+  if (!root.children.length) {
+    results.forEach(() => {
+      const box = el('div', 'hist');
+      box.append(el('h3'), el('p', 'peak'), el('div', 'bars'), el('div', 'x'));
+      root.append(box);
+    });
+  }
+  results.forEach((r, i) => {
+    const box = root.children[i];
+    box.querySelector('h3').textContent = r.s.name;
+    const peak = box.querySelector('.peak');
+    peak.textContent = '';
+    peak.append(el('b', '', String(r.peak)), document.createTextNode(`retries in the busiest ${fmt(width)} slice`));
+    const bars = box.querySelector('.bars');
+    bars.setAttribute('role', 'img');
+    bars.setAttribute('aria-label', `${r.s.name}: busiest ${fmt(width)} slice receives ${r.peak} of ${r.times.length} retries.`);
+    if (!bars.children.length) for (let b = 0; b < BINS; b++) bars.append(document.createElement('i'));
+    r.bins.forEach((count, b) => {
+      const bar = bars.children[b];
+      bar.style.height = `${(count / scale) * 100}%`;
+      bar.className = count === r.peak && count > 0 ? 'max' : '';
+    });
+    const x = box.querySelector('.x');
+    x.textContent = '';
+    x.append(el('span', '', '0s'), el('span', '', fmt(end / 2)), el('span', '', fmt(end)));
+  });
+}
+
+/* ---------- Wiring ---------- */
+
+function bind() {
+  ['#secret', '#ts', '#body'].forEach((id) => $(id).addEventListener('input', updateSign));
+  $('#tsNow').addEventListener('click', () => { $('#ts').value = Math.floor(Date.now() / 1000); updateSign(); });
+  $('#bodyPretty').addEventListener('click', () => {
+    try { $('#body').value = JSON.stringify(JSON.parse($('#body').value), null, 2); updateSign(); } catch (err) { /* not JSON, leave it */ }
+  });
+  $('#bodyMin').addEventListener('click', () => {
+    try { $('#body').value = JSON.stringify(JSON.parse($('#body').value)); updateSign(); } catch (err) { /* not JSON, leave it */ }
+  });
+  $('#copyReq').addEventListener('click', copyRequest);
+  $('#vector').addEventListener('click', runVector);
+
+  ['#tamper', '#wrongSecret', '#age', '#tol'].forEach((id) => $(id).addEventListener('input', () => updateVerify()));
+  $('#verifyReset').addEventListener('click', () => {
+    $('#tamper').checked = false; $('#wrongSecret').checked = false;
+    $('#age').value = 2; $('#tol').value = 300;
+    updateVerify();
   });
 
-  const payload = {
-    client: "relayctl - Distributed Webhook Dispatch CLI",
-    exportTimestamp: new Date().toISOString(),
-    clusterStatus: {
-      region: "ap-southeast-1",
-      workersOnline: 16,
-      p99LatencyMs: 1.42,
-      replayGuard: "100% ATOMIC"
-    },
-    idempotencyLedger: ledgerArr
-  };
-
-  const jsonStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
-  const downloadLink = document.createElement("a");
-  downloadLink.href = jsonStr;
-  downloadLink.download = `relay_audit_ledger_${Date.now()}.json`;
-  document.body.appendChild(downloadLink);
-  downloadLink.click();
-  downloadLink.remove();
+  ['#rBase', '#rCap', '#rMult', '#rMax', '#rFail', '#rSeed'].forEach((id) => $(id).addEventListener('input', renderRetry));
+  $('#play').addEventListener('click', playRetry);
+  $('#reroll').addEventListener('click', () => {
+    $('#rSeed').value = Math.floor(Math.random() * 1000000);
+    renderRetry();
+    $('#retryAnnounce').textContent = `Jitter re-rolled with seed ${$('#rSeed').value}.`;
+  });
+  if (reduceMotion.matches) {
+    $('#play').disabled = true;
+    $('#play').title = 'Playback is off because your system asks for reduced motion. The full schedule is already shown.';
+  }
 }
+
+function observe() {
+  const reveals = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) { reveals.forEach((r) => r.classList.add('in')); return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  reveals.forEach((r) => io.observe(r));
+
+  const links = [...document.querySelectorAll('.side a')];
+  const sections = links.map((a) => document.querySelector(a.getAttribute('href')));
+  const nav = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      links.forEach((a) => a.removeAttribute('aria-current'));
+      const a = links[sections.indexOf(e.target)];
+      if (a) a.setAttribute('aria-current', 'true');
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach((s) => s && nav.observe(s));
+}
+
+bind();
+observe();
+updateSign();
+renderRetry();

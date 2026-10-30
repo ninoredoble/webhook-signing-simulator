@@ -3,185 +3,294 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>relayctl - Distributed Webhook Dispatch &amp; TUI Terminal Console</title>
-  <meta name="description" content="An authentic interactive terminal emulator and TUI console for inspecting distributed webhook delivery, idempotency key caches, and exponential retry backoff.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>relay-core-api: webhook signing and retry simulator</title>
+  <meta name="description" content="An interactive browser study. Sign a webhook payload with real HMAC-SHA256, verify it as the receiver, and compare four retry backoff strategies. A simulator, not a delivery service.">
+  <meta name="theme-color" content="#F3F4EF">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 fill=%27%23121A17%27/%3E%3Cpath d=%27M8 16h9m0 0-4-4m4 4-4 4M21 9v14%27 stroke=%27%23fff%27 stroke-width=%273%27 fill=%27none%27/%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/schibsted-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
+  <script>document.documentElement.className = 'js';</script>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
 
-  <div class="tui-window">
-    
-    <!-- Window Title Bar -->
-    <header class="tui-title-bar">
-      <div class="title-left">
-        <div class="window-dots">
-          <span class="dot dot-red"></span>
-          <span class="dot dot-yellow"></span>
-          <span class="dot dot-green"></span>
+  <header class="bar">
+    <a class="wordmark" href="#top">relay-core-api</a>
+    <span class="bar-note">Interactive study</span>
+    <a class="bar-link" href="https://github.com/ninoredoble/relay-core-api">Source on GitHub</a>
+  </header>
+
+  <div class="shell" id="top">
+    <nav class="side" aria-label="On this page">
+      <ol>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#sign">Sign a payload</a></li>
+        <li><a href="#verify">Verify as the receiver</a></li>
+        <li><a href="#retry">Retry with backoff</a></li>
+        <li><a href="#herd">Why the jitter</a></li>
+        <li><a href="#scope">What this is, and is not</a></li>
+        <li><a href="#run">Run it yourself</a></li>
+      </ol>
+    </nav>
+
+    <main id="main">
+
+      <noscript><p class="noscript">This study needs JavaScript. The signing and retry simulators run in the page; there is no server.</p></noscript>
+
+      <section id="overview" class="hero" aria-labelledby="h-overview">
+        <h1 id="h-overview" class="reveal">Sign a webhook.<br>Watch it retry.</h1>
+        <div class="hero-grid">
+        <div class="hero-copy">
+        <p class="lede reveal" style="--d:1">
+          Two things every webhook sender has to get right: sign each request so the receiver can trust it,
+          and retry failures without flattening the receiver when it comes back. This page lets you do both
+          with your own hands, using the browser's built-in HMAC-SHA256.
+        </p>
+        <div class="hero-actions reveal" style="--d:2">
+          <a class="btn" href="#sign">Sign a payload</a>
+          <a class="btn btn-quiet" href="#retry">Compare retry strategies</a>
         </div>
-        <span class="term-title">relayctl // v2.4.0 (x86_64-unknown-linux-musl)</span>
-      </div>
-      <div class="title-stats">
-        <span class="stat-item">CLUSTER: <strong>ap-southeast-1 (PH)</strong></span>
-        <span class="stat-item">WORKERS: <strong>16/16 ONLINE</strong></span>
-        <span class="stat-item">IDLE: <strong>99.8%</strong></span>
-      </div>
-    </header>
-
-    <!-- Top TUI Telemetry & Sparkline HUD -->
-    <div class="tui-hud">
-      <div class="hud-spark">
-        <span style="color: var(--term-dim);">THROUGHPUT:</span>
-        <span class="spark-bars" id="sparkline">[ |||||||||||| ]</span>
-        <span class="hud-rate"><strong id="reqSec">4,280</strong> req/s</span>
-      </div>
-      <div>
-        <span style="color: var(--term-dim);">REPLAY GUARD:</span>
-        <span style="color: var(--term-green); font-weight: 700;">100% ATOMIC</span>
-      </div>
-      <div>
-        <span style="color: var(--term-dim);">P99 WIRE LATENCY:</span>
-        <span style="color: var(--term-cyan); font-weight: 700;">1.42 ms</span>
-      </div>
-    </div>
-
-    <!-- TUI Split Workspace -->
-    <main class="tui-workspace">
-      
-      <!-- Left Pane: Interactive REPL Terminal -->
-      <section class="tui-console-pane">
-        <div class="pane-header-strip">
-          <span class="pane-title">TERMINAL SESSION // PTS/1</span>
-          <span>BASH 5.2.15</span>
+        <p class="note reveal" style="--d:3">
+          <strong>This is a simulator.</strong> It is a static page, a study in how these two mechanisms behave.
+          Nothing is sent over the network, there is no server or queue behind it, and the sample events,
+          amounts and secret are made up. Do not paste a real secret into it.
+        </p>
         </div>
-
-        <!-- Terminal Stage / Scrollback -->
-        <div class="console-scroll-stage" id="termStage">
-          
-          <pre class="term-banner">
-+--------------------------------------------------------------+
-|  RELAY CORE CLI // DISTRIBUTED EVENT ENGINE (v2.4.0)         |
-|  Type '<span class="highlight">help</span>' for available commands or use quick actions.   |
-+--------------------------------------------------------------+</pre>
-
-          <div class="term-output-block">
-            <div class="cmd-echo">
-              <span class="prompt-user">relay@worker-01</span><span class="prompt-sep">:</span><span class="prompt-path">~</span>$ <span class="cmd-txt">relayctl status --all</span>
-            </div>
-            <div class="resp-line resp-success">// Cluster healthy: 16 daemon workers active across regional queue.</div>
-            <div class="resp-line resp-dim">// Redis Idempotency Ledger: 142 keys cached (TTL: 86400s).</div>
-          </div>
-
+        <div class="code-block hero-req reveal" style="--d:2">
+          <div class="code-head"><span>Signed live in your browser, as you edit it below</span></div>
+          <pre class="code" id="heroReq" aria-hidden="true"></pre>
         </div>
-
-        <!-- Quick Action Shortcut Strip -->
-        <div class="quick-action-bar">
-          <button class="cli-btn" onclick="runCommand('dispatch')"><kbd>1</kbd> dispatch</button>
-          <button class="cli-btn" onclick="runCommand('replay')"><kbd>2</kbd> test-replay</button>
-          <button class="cli-btn" onclick="runCommand('backoff')"><kbd>3</kbd> backoff-sim</button>
-          <button class="cli-btn" onclick="runCommand('inspect')"><kbd>4</kbd> inspect-hex</button>
-          <button class="cli-btn" onclick="runCommand('keys')"><kbd>5</kbd> idemp-keys</button>
-          <button class="cli-btn" onclick="runCommand('top')"><kbd>6</kbd> workers</button>
-          <button class="cli-btn" onclick="runCommand('clear')"><kbd>C</kbd> clear</button>
-        </div>
-
-        <!-- CLI Interactive Input Bar -->
-        <div class="tui-prompt-bar">
-          <span class="prompt-user" style="color: var(--term-green); font-weight: 700;">relay@worker-01</span>
-          <span style="color: var(--term-dim);">:</span>
-          <span style="color: var(--term-cyan); font-weight: 700;">~</span>
-          <span style="color: var(--term-dim);">$</span>
-          <input type="text" id="cliInput" placeholder="Type command (dispatch, replay, backoff, inspect, keys, top, export, clear)..." autocomplete="off" spellcheck="false" />
-          <span class="term-cursor"></span>
         </div>
       </section>
 
-      <!-- Right Pane: Wire Buffer & State Inspector -->
-      <aside class="tui-inspector-pane">
-        
-        <!-- Live Frame Buffer -->
-        <div class="inspector-section">
-          <div class="sec-head">
-            <span>OUTBOUND WIRE FRAME DUMP</span>
-            <span class="badge-enc">RFC 7946 // SHA-256</span>
-          </div>
+      <section id="sign" aria-labelledby="h-sign">
+        <h2 id="h-sign" class="reveal">Sign a payload</h2>
+        <p class="prose reveal">
+          The sender joins the timestamp and the exact request body with a dot, then computes an HMAC-SHA256 of
+          that string using a secret shared with the receiver. The result goes in a header. The header name
+          and format here follow common webhook conventions, but <code>Relay-Signature</code> is a name made up for this study.
+        </p>
 
-          <!-- Hex Dump Box -->
-          <pre class="hex-dump-box" id="hexDump">
-<span class="hex-addr">00000000</span>  <span class="hex-bytes">50 4f 53 54 20 2f 76 31  2f 77 65 62 68 6f 6f 6b</span>  |<span class="hex-ascii">POST /v1/webhook</span>|
-<span class="hex-addr">00000010</span>  <span class="hex-bytes">73 20 48 54 54 50 2f 31  2e 31 0d 0a 48 6f 73 74</span>  |<span class="hex-ascii">s HTTP/1.1..Host</span>|
-<span class="hex-addr">00000020</span>  <span class="hex-bytes">3a 20 61 70 69 2e 73 75  62 73 63 72 69 62 65 72</span>  |<span class="hex-ascii">: api.subscriber</span>|
-<span class="hex-addr">00000030</span>  <span class="hex-bytes">2e 70 68 0d 0a 58 2d 52  65 6c 61 79 2d 45 76 65</span>  |<span class="hex-ascii">.ph..X-Relay-Eve</span>|
-<span class="hex-addr">00000040</span>  <span class="hex-bytes">6e 74 3a 20 69 6e 76 6f  69 63 65 2e 70 61 79 6d</span>  |<span class="hex-ascii">nt: invoice.paym</span>|
-<span class="hex-addr">00000050</span>  <span class="hex-bytes">65 6e 74 5f 73 65 74 74  6c 65 64 0d 0a 49 64 65</span>  |<span class="hex-ascii">ent_settled..Ide</span>|
-<span class="hex-addr">00000060</span>  <span class="hex-bytes">6d 70 6f 74 65 6e 63 79  2d 4b 65 79 3a 20 69 64</span>  |<span class="hex-ascii">mpotency-Key: id</span>|
-<span class="hex-addr">00000070</span>  <span class="hex-bytes">65 6d 5f 63 64 6f 5f 39  34 38 66 32 63 30 31 0d</span>  |<span class="hex-ascii">em_cdo_948f2c01.</span>|</pre>
+        <div class="pg reveal">
+          <form class="pg-in" id="signForm" onsubmit="return false" aria-label="Signing inputs">
+            <div class="field">
+              <label for="secret">Shared secret</label>
+              <input id="secret" type="text" value="whsec_study_not_a_real_secret" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="ts">Timestamp (unix seconds)</label>
+              <div class="inline">
+                <input id="ts" type="number" inputmode="numeric" value="1767225600">
+                <button type="button" class="btn btn-small btn-quiet" id="tsNow">Use current time</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="body">Request body</label>
+              <textarea id="body" rows="7" spellcheck="false">{"id":"evt_0001","type":"invoice.paid","amount":125000,"currency":"PHP"}</textarea>
+              <p class="hint">Signed byte for byte. Add a space or change one digit and watch the signature.</p>
+            </div>
+            <div class="inline">
+              <button type="button" class="btn btn-small btn-quiet" id="bodyPretty">Pretty-print body</button>
+              <button type="button" class="btn btn-small btn-quiet" id="bodyMin">Minify body</button>
+            </div>
+          </form>
+
+          <div class="pg-out">
+            <div class="code-block">
+              <div class="code-head"><span>String that gets signed</span></div>
+              <pre class="code" id="signedString" tabindex="0"></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-head">
+                <span>HMAC-SHA256, hex</span>
+                <span class="delta" id="delta" aria-live="polite"></span>
+              </div>
+              <pre class="code sig" id="sigOut" tabindex="0"></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-head">
+                <span>The request a receiver would see</span>
+                <button type="button" class="copy" id="copyReq">Copy</button>
+              </div>
+              <pre class="code" id="reqOut" tabindex="0"></pre>
+            </div>
+            <div class="selftest">
+              <button type="button" class="btn btn-small btn-quiet" id="vector">Check against an RFC 4231 test vector</button>
+              <p id="vectorOut" role="status"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="verify" aria-labelledby="h-verify">
+        <h2 id="h-verify" class="reveal">Verify as the receiver</h2>
+        <p class="prose reveal">
+          The receiver never trusts the header on its own. It checks the timestamp is recent, so an old capture can't be replayed,
+          recomputes the signature from the body it actually received, and compares in constant time.
+          Break something in transit and see which check catches it.
+        </p>
+
+        <div class="pg reveal">
+          <form class="pg-in" onsubmit="return false" aria-label="What happens in transit">
+            <div class="check-field">
+              <input type="checkbox" id="tamper">
+              <label for="tamper">Alter the body in transit<span>Changes the last digit, as an attacker or a buggy proxy might.</span></label>
+            </div>
+            <div class="check-field">
+              <input type="checkbox" id="wrongSecret">
+              <label for="wrongSecret">Receiver holds a different secret<span>Like a rotated key that only one side has picked up.</span></label>
+            </div>
+            <div class="field">
+              <label for="age">Request arrives <output id="ageOut">2</output> seconds after it was signed</label>
+              <input id="age" type="range" min="0" max="900" step="1" value="2">
+            </div>
+            <div class="field">
+              <label for="tol">Receiver accepts requests up to this old (seconds)</label>
+              <input id="tol" type="number" inputmode="numeric" min="1" max="3600" value="300">
+            </div>
+            <button type="button" class="btn btn-small btn-quiet" id="verifyReset">Reset to a clean delivery</button>
+          </form>
+
+          <div class="pg-out">
+            <div class="verdict" id="verdict" role="status" aria-live="polite"></div>
+            <ol class="checks" id="checks"></ol>
+            <div class="code-block">
+              <div class="code-head"><span>Signature in the header, and what the receiver computed</span></div>
+              <pre class="code sig" id="cmpOut" tabindex="0"></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-head"><span>Body the receiver got</span></div>
+              <pre class="code" id="gotBody" tabindex="0"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="retry" aria-labelledby="h-retry">
+        <h2 id="h-retry" class="reveal">Retry with backoff</h2>
+        <p class="prose reveal">
+          The subscriber's endpoint fails the first few attempts, then recovers. Four ways of choosing the wait before the next try,
+          run on the same settings and the same random seed. The pale bar behind each wait is the longest it could have been;
+          the solid bar is what it was.
+        </p>
+
+        <div class="pg pg-wide reveal">
+          <form class="pg-in" onsubmit="return false" aria-label="Retry settings">
+            <div class="grid-fields">
+              <div class="field">
+                <label for="rBase">Base wait (s)</label>
+                <input id="rBase" type="number" inputmode="decimal" min="0.1" max="60" step="0.1" value="1">
+              </div>
+              <div class="field">
+                <label for="rCap">Maximum wait (s)</label>
+                <input id="rCap" type="number" inputmode="decimal" min="1" max="3600" step="1" value="30">
+              </div>
+              <div class="field">
+                <label for="rMult">Multiplier</label>
+                <input id="rMult" type="number" inputmode="decimal" min="1" max="4" step="0.5" value="2">
+              </div>
+              <div class="field">
+                <label for="rMax">Attempts allowed</label>
+                <input id="rMax" type="number" inputmode="numeric" min="2" max="12" step="1" value="8">
+              </div>
+              <div class="field">
+                <label for="rFail">Failing attempts</label>
+                <input id="rFail" type="number" inputmode="numeric" min="0" max="12" step="1" value="5">
+              </div>
+              <div class="field">
+                <label for="rSeed">Random seed</label>
+                <input id="rSeed" type="number" inputmode="numeric" min="0" max="999999" step="1" value="7">
+              </div>
+            </div>
+            <div class="inline">
+              <button type="button" class="btn" id="play">Play the clock</button>
+              <button type="button" class="btn btn-quiet" id="reroll">Re-roll the jitter</button>
+            </div>
+          </form>
+
+          <div class="pg-out light">
+            <p class="sr-only" id="retryAnnounce" role="status" aria-live="polite"></p>
+            <div class="tracks" id="tracks"></div>
+            <div class="axis" id="axis" aria-hidden="true"></div>
+            <div class="table-wrap">
+              <table class="attempts" id="attemptsTable">
+                <caption>When each strategy sends attempt n, in seconds after the first try. Decorr. is decorrelated jitter.</caption>
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
-        <!-- Worker Process Table -->
-        <div class="inspector-section" style="border-bottom: none;">
-          <div class="sec-head">
-            <span>DAEMON WORKER POOL</span>
-            <span style="font-size: 9px; color: var(--term-dim);" id="topTime">TOP - 16:20:10</span>
-          </div>
-
-          <table class="ascii-table">
-            <thead>
-              <tr>
-                <th>PID</th>
-                <th>THREAD</th>
-                <th>QUEUE</th>
-                <th>STATE</th>
-              </tr>
-            </thead>
-            <tbody id="workerTableBody">
-              <tr>
-                <td><code>4091</code></td>
-                <td>worker-tx-0</td>
-                <td>billing.settled</td>
-                <td><span class="status-active">POLLING</span></td>
-              </tr>
-              <tr>
-                <td><code>4092</code></td>
-                <td>worker-tx-1</td>
-                <td>grid.telemetry</td>
-                <td><span class="status-active">POLLING</span></td>
-              </tr>
-              <tr>
-                <td><code>4093</code></td>
-                <td>worker-retry</td>
-                <td>backoff.jitter</td>
-                <td><span class="status-retry">DELAY (2.4s)</span></td>
-              </tr>
-              <tr>
-                <td><code>4094</code></td>
-                <td>worker-crypto</td>
-                <td>hmac.sha256</td>
-                <td><span class="status-active">IDLE</span></td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="formulas reveal">
+          <h3>The four waits</h3>
+          <p class="prose">
+            After the <var>k</var>th failure, let <code>d = min(cap, base × multiplier^(k−1))</code>.
+          </p>
+          <ul>
+            <li><strong>No jitter:</strong> wait <code>d</code>.</li>
+            <li><strong>Full jitter:</strong> wait a random time between 0 and <code>d</code>.</li>
+            <li><strong>Equal jitter:</strong> wait <code>d/2</code> plus a random time between 0 and <code>d/2</code>.</li>
+            <li><strong>Decorrelated jitter:</strong> wait a random time between <code>base</code> and three times the previous wait, never above <code>cap</code>.</li>
+          </ul>
+          <p class="prose">These are the strategies compared in the AWS Architecture Blog post “Exponential Backoff and Jitter”. The code here is written from that description for this study.</p>
         </div>
+      </section>
 
-      </aside>
+      <section id="herd" aria-labelledby="h-herd">
+        <h2 id="h-herd" class="reveal">Why the jitter</h2>
+        <p class="prose reveal">
+          One client retrying alone looks fine either way. The trouble is many clients that failed at the same instant.
+          Here, <strong>200</strong> subscribers all fail every attempt. Each chart counts how many of their first four retries land in each slice of time,
+          using the settings above. Same clients, same scale on every chart.
+        </p>
+        <div class="herd reveal" id="herdCharts"></div>
+        <p class="prose reveal herd-note">
+          Spreading retries out is not the same as thinning them early. Full jitter can pick a very short wait, so it still bunches up
+          near the start; equal and decorrelated jitter keep a floor under the wait. Change the settings above and compare the numbers,
+          not just the shapes.
+        </p>
+      </section>
 
+      <section id="scope" aria-labelledby="h-scope">
+        <h2 id="h-scope" class="reveal">What this is, and is not</h2>
+        <div class="two-col reveal">
+          <div>
+            <h3>It is</h3>
+            <ul>
+              <li>A static HTML, CSS and JavaScript page with no dependencies and no build step.</li>
+              <li>Real HMAC-SHA256 through the browser's Web Crypto API. You can check it against a published test vector above.</li>
+              <li>A seeded simulation of four retry strategies. Same seed, same result, so you can compare changes.</li>
+              <li>A study I built to understand these mechanisms, and to explain them.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>It is not</h3>
+            <ul>
+              <li>A webhook delivery service, an API, or something running in production. There is no backend, queue, database or cache.</li>
+              <li>Connected to anything. It makes no requests of its own and sends no data anywhere.</li>
+              <li>Code to copy into a real receiver. The signature comparison is written to be constant-time, but JavaScript makes no such guarantee. Use your platform's own helper for real work.</li>
+              <li>Using real data. Events, amounts and the secret are illustrative.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="run" aria-labelledby="h-run">
+        <h2 id="h-run" class="reveal">Run it yourself</h2>
+        <p class="prose reveal">Open <code>index.html</code> in a current browser, or serve the folder with any static server.</p>
+        <div class="code-block reveal">
+          <pre class="code" tabindex="0">git clone https://github.com/ninoredoble/relay-core-api.git
+cd relay-core-api
+python3 -m http.server 8000   # then open http://localhost:8000</pre>
+        </div>
+        <p class="prose reveal">Web Crypto needs a secure context, which both <code>localhost</code> and the hosted page provide.</p>
+      </section>
+
+      <footer class="foot">
+        <p>An interactive study by Niño Redoble. Fonts: Schibsted Grotesk and Spline Sans Mono, both under the SIL Open Font License, served from this page.</p>
+      </footer>
     </main>
-
-    <!-- TUI Bottom Status Bar -->
-    <footer class="tui-bottom-status">
-      <div class="key-shortcuts">
-        <span><strong>F1</strong> Help</span>
-        <span><strong>F2</strong> Dispatch</span>
-        <span><strong>F3</strong> Backoff</span>
-        <span><strong>F4</strong> HexDump</span>
-        <span><strong>F10</strong> Export</span>
-      </div>
-      <div>ASCII-7 // 140x42 // 0 ERRORS</div>
-    </footer>
-
   </div>
 
   <script src="app.js"></script>

@@ -1,92 +1,48 @@
-# relayctl: Distributed Webhook Dispatch & TUI Terminal Console
+# relay-core-api
 
-> **Interactive Terminal Emulator, Idempotency Engine & Wire Frame Inspector**  
-> An authentic UNIX terminal workstation (`relayctl`) modeling distributed webhook dispatch, atomic idempotency replay protection, RFC 7946 wire hex framing, and decorrelated exponential retry backoff.
+An interactive browser study of two things every webhook sender has to get right: **signing** each request so the receiver can trust it, and **retrying** failures without overwhelming the receiver.
 
----
+It is a simulator. It is a static page that runs entirely in your browser. There is no server, queue, database or cache behind it, it makes no network requests of its own, and the sample events, amounts and secret are made up. It is not a webhook delivery service, an API, or a production system.
 
-## Overview
+## What you can do
 
-High-throughput distributed webhook systems require strict idempotency guarantees, cryptographic signature verification, and robust retry backoff strategies to prevent duplicate payment settlements or data corruption across unreliable subscriber endpoints.
+1. **Sign a payload.** Edit the secret, timestamp and body. The page computes a real HMAC-SHA256 of `timestamp.body` with the browser's Web Crypto API and shows the request a receiver would see. Characters that change in the signature as you type are highlighted. A button checks the same code against the RFC 4231 test case 2 vector.
+2. **Verify as the receiver.** Alter the body in transit, give the receiver a different secret, or make the request arrive late. Three checks run (read the header, check the timestamp is recent, recompute and compare the signature) and the receiver accepts or rejects.
+3. **Retry with backoff.** Set a base wait, a maximum wait, a multiplier, how many attempts are allowed and how many of them fail. Four strategies run on the same seed so you can compare them: no jitter, full jitter, equal jitter and decorrelated jitter. Play the clock to watch them unfold, or read the table of send times.
+4. **See why the jitter matters.** 200 simulated subscribers fail every attempt. Four histograms show how their first four retries pile up in time under each strategy, on one shared scale.
 
-**relayctl** provides a terminal user interface (TUI) and interactive REPL to test, inspect, and evaluate event dispatching pipelines in real time. Built in pure vanilla web technologies with zero runtime overhead, it simulates multi-worker queuing, Redis-backed idempotency caching, and wire frame packet inspection.
+## The four waits
 
----
+After the *k*th failure, let `d = min(cap, base × multiplier^(k−1))`.
 
-## Core Systems & Capabilities
+| Strategy | Wait |
+| --- | --- |
+| No jitter | `d` |
+| Full jitter | random between 0 and `d` |
+| Equal jitter | `d/2` plus random between 0 and `d/2` |
+| Decorrelated jitter | random between `base` and 3 × the previous wait, never above `cap` |
 
-### 1. In-Memory Distributed Idempotency Ledger
-- **Atomic Replay Guard**:
-  Every inbound event is verified against an in-memory distributed key-value store.
-  - If a key is new: acquires distributed lock, generates delivery ID, signs payload, and returns `[HTTP 200 OK]`.
-  - If a key was previously settled: detects the duplicate dispatch, halts execution, returns `[HTTP 409 CONFLICT] // REPLAY BLOCKED`, and outputs the cached response.
+These are the strategies compared in the AWS Architecture Blog post "Exponential Backoff and Jitter". The code here is written from that description for this study. Randomness comes from a small seeded generator, so the same seed gives the same run.
 
-### 2. RFC 7946 Wire Frame Hex Dump Inspector
-- Dynamic 16-byte hex dump pane displaying memory address offsets (`00000000` to `00000070`), raw hexadecimal byte pairs, and printable ASCII wire representations.
-- Dynamically parses HTTP headers, `Idempotency-Key`, `X-Relay-Event`, and `X-Signature` timestamps.
+## Honest limits
 
-### 3. Decorrelated Jitter Exponential Retry Backoff
-- Simulates subscriber HTTP 504 gateway timeouts using the AWS/Full-Jitter algorithm:
-  `sleep = min(cap, random(base, sleep * 3))`
-- Demonstrates how decorrelated random noise prevents "thundering herd" concurrency stampedes against recovering subscriber servers.
+- `Relay-Signature` and the header layout are modelled on common webhook conventions; the name is made up for this study.
+- The signature comparison is written to be constant-time, but JavaScript makes no timing guarantee. Use your platform's own helper in real code.
+- The retry simulator models one endpoint that fails its first N attempts and then recovers. Real endpoints, networks and queues are messier.
+- Do not paste a real secret into the page.
 
-### 4. Daemon Worker Pool Monitor (`top`)
-- Live table monitoring 16 background daemon worker threads across `billing.settled`, `grid.telemetry`, and `backoff.jitter` queues with status indicators (`POLLING`, `DELAY`, `ACTIVE`).
+## Run it
 
----
-
-## Command Reference
-
-| Command | Syntax | Description |
-|:---|:---|:---|
-| **help** | `help` | Displays available commands and keybindings |
-| **status** | `status` | Checks cluster health, throughput, and Redis ledger size |
-| **dispatch** | `dispatch [topic] [key]` | Dispatches signed webhook with idempotency check |
-| **replay** | `replay [key]` | Simulates network replay to trigger 409 Conflict guard |
-| **backoff** | `backoff [attempts]` | Runs exponential retry simulation with decorrelated jitter |
-| **inspect** | `inspect [key]` | Formats RFC 7946 wire frame and raw hex dump |
-| **keys** | `keys` | Queries Redis distributed idempotency lock cache |
-| **top** | `top` | Refreshes daemon worker thread status |
-| **export** | `export` | Downloads complete JSON audit trail of deliveries |
-| **clear** | `clear` | Clears terminal scrollback buffer |
-
----
-
-## Keyboard Shortcuts
-
-- `F1`: Open help menu
-- `F2`: Quick dispatch
-- `F3`: Run backoff simulation
-- `F4`: Inspect wire frame hex dump
-- `F10`: Export audit ledger to JSON
-- `Arrow Up / Down`: Navigate command history
-
----
-
-## Technical Specifications
-
-- **Stack**: Vanilla HTML5, Vanilla ES6+ JavaScript, Pure CSS3 TUI styling.
-- **Character Encoding**: 100% 7-bit ASCII (zero mojibake / corrupted box-drawing bytes).
-- **Zero Runtime Dependencies**: Runs natively in any modern browser without node or npm.
-
----
-
-## Running Locally
+Open `index.html` in a current browser, or serve the folder with any static server (Web Crypto needs a secure context, which `localhost` and GitHub Pages both provide):
 
 ```bash
-# Clone the repository
 git clone https://github.com/ninoredoble/relay-core-api.git
-
-# Navigate to directory
 cd relay-core-api
-
-# Open index.html in any modern browser
-# (Windows)
-start index.html
-
-# (macOS)
-open index.html
-
-# (Linux)
-xdg-open index.html
+python3 -m http.server 8000   # then open http://localhost:8000
 ```
+
+Plain HTML, CSS and JavaScript. No build step and no dependencies.
+
+## Fonts
+
+Schibsted Grotesk and Spline Sans Mono, both under the SIL Open Font License, are served from `fonts/` with their licences alongside.
