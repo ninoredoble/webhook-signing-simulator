@@ -1,4 +1,4 @@
-// relay-core-api: webhook signing and retry simulator.
+// webhook-signing-simulator: webhook signing and retry simulator.
 // An interactive study. Everything runs in this page; nothing is sent anywhere.
 
 'use strict';

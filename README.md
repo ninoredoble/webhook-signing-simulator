@@ -1,4 +1,4 @@
-# relay-core-api
+# webhook-signing-simulator
 
 An interactive browser study of two things every webhook sender has to get right: **signing** each request so the receiver can trust it, and **retrying** failures without overwhelming the receiver.
 
@@ -36,8 +36,8 @@ These are the strategies compared in the AWS Architecture Blog post "Exponential
 Open `index.html` in a current browser, or serve the folder with any static server (Web Crypto needs a secure context, which `localhost` and GitHub Pages both provide):
 
 ```bash
-git clone https://github.com/ninoredoble/relay-core-api.git
-cd relay-core-api
+git clone https://github.com/ninoredoble/webhook-signing-simulator.git
+cd webhook-signing-simulator
 python3 -m http.server 8000   # then open http://localhost:8000
 ```
 

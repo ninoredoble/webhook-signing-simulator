@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>relay-core-api: webhook signing and retry simulator</title>
+  <title>webhook-signing-simulator: webhook signing and retry simulator</title>
   <meta name="description" content="An interactive browser study. Sign a webhook payload with real HMAC-SHA256, verify it as the receiver, and compare four retry backoff strategies. A simulator, not a delivery service.">
   <meta name="theme-color" content="#F3F4EF">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 fill=%27%23121A17%27/%3E%3Cpath d=%27M8 16h9m0 0-4-4m4 4-4 4M21 9v14%27 stroke=%27%23fff%27 stroke-width=%273%27 fill=%27none%27/%3E%3C/svg%3E">
@@ -15,9 +15,9 @@
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="bar">
-    <a class="wordmark" href="#top">relay-core-api</a>
+    <a class="wordmark" href="#top">webhook-signing-simulator</a>
     <span class="bar-note">Interactive study</span>
-    <a class="bar-link" href="https://github.com/ninoredoble/relay-core-api">Source on GitHub</a>
+    <a class="bar-link" href="https://github.com/ninoredoble/webhook-signing-simulator">Source on GitHub</a>
   </header>
 
   <div class="shell" id="top">
@@ -280,8 +280,8 @@
         <h2 id="h-run" class="reveal">Run it yourself</h2>
         <p class="prose reveal">Open <code>index.html</code> in a current browser, or serve the folder with any static server.</p>
         <div class="code-block reveal">
-          <pre class="code" tabindex="0">git clone https://github.com/ninoredoble/relay-core-api.git
-cd relay-core-api
+          <pre class="code" tabindex="0">git clone https://github.com/ninoredoble/webhook-signing-simulator.git
+cd webhook-signing-simulator
 python3 -m http.server 8000   # then open http://localhost:8000</pre>
         </div>
         <p class="prose reveal">Web Crypto needs a secure context, which both <code>localhost</code> and the hosted page provide.</p>
