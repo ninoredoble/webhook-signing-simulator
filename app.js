@@ -84,6 +84,7 @@ async function updateSign() {
   if (!sender.secret) {
     $('#sigOut').textContent = 'Enter a secret to sign with.';
     $('#reqOut').textContent = '';
+    $('#heroReq').textContent = '';
     $('#delta').textContent = '';
     sender.sig = null;
     updateVerify(sender);
@@ -95,6 +96,8 @@ async function updateSign() {
     sig = await hmacHex(sender.secret, signed);
   } catch (err) {
     $('#sigOut').textContent = 'Web Crypto is not available here. Open this page over https or from localhost.';
+    $('#reqOut').textContent = '';
+    $('#heroReq').textContent = '';
     return;
   }
   if (mine !== signSeq) return;
@@ -157,7 +160,7 @@ async function updateVerify(sender) {
   const mine = ++verifySeq;
 
   const age = Number($('#age').value);
-  const tol = Math.max(1, Number($('#tol').value) || 300);
+  const tol = num('#tol', 1, 3600, 300);
   $('#ageOut').textContent = age;
 
   const tampered = $('#tamper').checked;
@@ -333,6 +336,7 @@ let playRaf = 0;
 
 function renderRetry() {
   cancelAnimationFrame(playRaf);
+  $('#play').disabled = reduceMotion.matches;
   const p = readParams();
   const lanes = STRATEGIES.map((s, i) => ({ s, run: schedule(s.id, p, mulberry32(p.seed * 31 + i + 1)) }));
   const maxAt = Math.max(...lanes.map((l) => l.run[l.run.length - 1].at));
